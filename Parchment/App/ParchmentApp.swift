@@ -55,6 +55,8 @@ struct RootView: View {
         .onChange(of: selection) { _, _ in path = [] }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .onAppear {
+            // Catch up on reading handwriting for search, a moment after launch.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { HandwritingIndex.shared.indexEverything() }
             // First arrival: add the hands-on welcome notebook and open it.
             guard !seededTutorial else { return }
             seededTutorial = true

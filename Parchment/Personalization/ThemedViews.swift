@@ -8,10 +8,18 @@ enum ThemeIcon: String {
     case library, newNotebook, importPDF, sync, settings, trash
     case study, flashcards, recall, timer, flip, hide
     case reveal, done, next, subjects, deck, allNotes
+    // Not in the Personalization Kit yet: always use the standard symbol.
+    case typeText, math, shapes, search
 
     /// The standard SF Symbol, shared with the Personalization Kit's faint guides.
     var systemImage: String {
-        KitLayout.allIcons.first { $0.id == rawValue }?.symbol ?? "questionmark"
+        switch self {
+        case .typeText: return "textformat"
+        case .math: return "function"
+        case .shapes: return "pentagon"
+        case .search: return "magnifyingglass"
+        default: return KitLayout.allIcons.first { $0.id == rawValue }?.symbol ?? "questionmark"
+        }
     }
 }
 

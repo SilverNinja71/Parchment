@@ -21,10 +21,12 @@ final class SyncEngine: ObservableObject {
         case failed(String)
     }
 
-    struct Connection: Codable, Equatable {
+    struct Connection: Codable, Equatable, Identifiable {
         var service: CloudService
         var folder: RemoteFolder
         var accountName: String
+        /// One place = one service + one folder.
+        var id: String { "\(service.rawValue):\(folder.id)" }
     }
 
     /// What we know about each notebook's cloud copy since the last successful sync.
@@ -34,12 +36,21 @@ final class SyncEngine: ObservableObject {
         var remoteModified: Date
     }
 
-    @Published private(set) var connection: Connection?
+    /// Every place notes are synced to. Each one gets a full copy of every notebook.
+    @Published private(set) var connections: [Connection] = []
+    /// The place currently syncing, while a sync is running.
+    @Published private(set) var activeConnectionID: String?
     @Published private(set) var status: Status = .idle
     @Published var autoSync: Bool { didSet { defaults.set(autoSync, forKey: Keys.autoSync) } }
     @Published var savePDFCopies: Bool { didSet { defaults.set(savePDFCopies, forKey: Keys.pdfCopies) } }
 
-    private var records: [UUID: Record] = [:]
+    /// Sync records per place (connection ID → notebook ID → record).
+    private var allRecords: [String: [UUID: Record]] = [:]
+    /// The records of the place being synced right now.
+    private var records: [UUID: Record] {
+        get { allRecords[activeConnectionID ?? ""] ?? [:] }
+        set { allRecords[activeConnectionID ?? ""] = newValue }
+    }
     private var providers: [CloudService: CloudProvider] = [:]
     private var isSyncing = false
     private var syncAgain = false
@@ -48,8 +59,10 @@ final class SyncEngine: ObservableObject {
     private let store: NotebookStore
 
     private enum Keys {
-        static let connection = "sync.connection"
-        static let records = "sync.records"
+        static let connections = "sync.connections"
+        static let records = "sync.recordsByPlace"
+        static let legacyConnection = "sync.connection"
+        static let legacyRecords = "sync.records"
         static let autoSync = "sync.auto"
         static let pdfCopies = "sync.pdfCopies"
     }
@@ -58,8 +71,18 @@ final class SyncEngine: ObservableObject {
         self.store = store ?? .shared
         autoSync = defaults.object(forKey: Keys.autoSync) as? Bool ?? true
         savePDFCopies = defaults.bool(forKey: Keys.pdfCopies)
-        connection = defaults.data(forKey: Keys.connection).flatMap { try? JSONDecoder().decode(Connection.self, from: $0) }
-        records = defaults.data(forKey: Keys.records).flatMap { try? JSONDecoder().decode([UUID: Record].self, from: $0) } ?? [:]
+        connections = defaults.data(forKey: Keys.connections).flatMap { try? JSONDecoder().decode([Connection].self, from: $0) } ?? []
+        allRecords = defaults.data(forKey: Keys.records).flatMap { try? JSONDecoder().decode([String: [UUID: Record]].self, from: $0) } ?? [:]
+        // Move over the single sync place from earlier versions.
+        if connections.isEmpty, let legacy = defaults.data(forKey: Keys.legacyConnection)
+            .flatMap({ try? JSONDecoder().decode(Connection.self, from: $0) }) {
+            connections = [legacy]
+            allRecords[legacy.id] = defaults.data(forKey: Keys.legacyRecords)
+                .flatMap { try? JSONDecoder().decode([UUID: Record].self, from: $0) } ?? [:]
+            defaults.removeObject(forKey: Keys.legacyConnection)
+            defaults.removeObject(forKey: Keys.legacyRecords)
+            persist()
+        }
 
         // Sync a little while after the user stops writing.
         self.store.userDidEdit
@@ -96,51 +119,66 @@ final class SyncEngine: ObservableObject {
 
     // MARK: - Connecting
 
-    /// Called once the user has signed in and picked a folder.
+    /// Adds a place (or updates one with the same folder) once the user has signed in and picked a folder.
     func connect(_ service: CloudService, folder: RemoteFolder) async {
         let provider = provider(for: service)
         let account = (try? await provider.accountName()) ?? service.title
-        if let previous = connection, previous.service != service || previous.folder.id != folder.id {
-            records = [:] // a new place starts fresh
+        let connection = Connection(service: service, folder: folder, accountName: account)
+        if let index = connections.firstIndex(where: { $0.id == connection.id }) {
+            connections[index] = connection
+        } else {
+            connections.append(connection)
         }
-        connection = Connection(service: service, folder: folder, accountName: account)
         persist()
         await syncNow()
     }
 
-    func disconnect(signOut: Bool) {
-        if let connection, signOut { provider(for: connection.service).signOut() }
-        connection = nil
-        records = [:]
-        status = .idle
+    /// Stops syncing to one place. Notebooks stay on this iPad and in that folder.
+    func disconnect(_ connection: Connection, signOut: Bool) {
+        connections.removeAll { $0.id == connection.id }
+        allRecords[connection.id] = nil
+        // Only sign out if no other place uses the same account.
+        if signOut, !connections.contains(where: { $0.service == connection.service }) {
+            provider(for: connection.service).signOut()
+        }
+        if connections.isEmpty { status = .idle }
         persist()
     }
 
     // MARK: - Syncing
 
     func syncIfAutomatic() {
-        guard autoSync, connection != nil else { return }
+        guard autoSync, !connections.isEmpty else { return }
         Task { await syncNow() }
     }
 
+    /// Syncs with every place, one after another. Notebooks downloaded from one place
+    /// are uploaded to the others, so every place ends up with everything.
     func syncNow() async {
-        guard let connection else { return }
+        guard !connections.isEmpty else { return }
         if isSyncing {
             syncAgain = true
             return
         }
         isSyncing = true
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            activeConnectionID = nil
+        }
 
         repeat {
             syncAgain = false
-            do {
-                try await sync(with: provider(for: connection.service), folder: connection.folder)
-                status = .synced(Date())
-            } catch {
-                status = .failed(error.localizedDescription)
-                return
+            var failures: [String] = []
+            for connection in connections {
+                activeConnectionID = connection.id
+                do {
+                    try await sync(with: provider(for: connection.service), folder: connection.folder)
+                } catch {
+                    failures.append("\(connection.service.title): \(error.localizedDescription)")
+                }
             }
+            persist()
+            status = failures.isEmpty ? .synced(Date()) : .failed(failures.joined(separator: "\n"))
         } while syncAgain
     }
 
@@ -229,7 +267,7 @@ final class SyncEngine: ObservableObject {
     }
 
     private func persist() {
-        defaults.set(try? JSONEncoder().encode(connection), forKey: Keys.connection)
-        defaults.set(try? JSONEncoder().encode(records), forKey: Keys.records)
+        defaults.set(try? JSONEncoder().encode(connections), forKey: Keys.connections)
+        defaults.set(try? JSONEncoder().encode(allRecords), forKey: Keys.records)
     }
 }

@@ -21,6 +21,12 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
     private let textLayer = TextBlockLayerView()
     private let lassoLayer = CAShapeLayer()
     private lazy var lassoGesture = UIPanGestureRecognizer(target: self, action: #selector(handleLasso(_:)))
+    private lazy var textTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTextTap(_:)))
+    private var currentTool: EditorTool = .pen
+    private var liveTextWorkItem: DispatchWorkItem?
+    private var liveTextTask: Task<Void, Never>?
+    /// Left/right margin for flowing paragraphs on document pages.
+    private let paragraphMargin: Double = 60
     private var lassoPoints: [CGPoint] = []
 
     private let store: NotebookStore
@@ -66,6 +72,8 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         lassoGesture.maximumNumberOfTouches = 1
         lassoGesture.isEnabled = false
         canvasView.addGestureRecognizer(lassoGesture)
+        textTapGesture.isEnabled = false
+        canvasView.addGestureRecognizer(textTapGesture)
 
         let pencilInteraction = UIPencilInteraction()
         pencilInteraction.delegate = self
@@ -121,9 +129,13 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         canvasView.drawingPolicy = fingerDraws ? .anyInput : .pencilOnly
         canvasView.isRulerActive = rulerActive
 
-        let converting = editorTool == .convert
-        canvasView.drawingGestureRecognizer.isEnabled = !converting
+        if editorTool != currentTool { editor?.livePreview = nil }
+        currentTool = editorTool
+        let converting = editorTool.circlesInk
+        let typing = editorTool == .text
+        canvasView.drawingGestureRecognizer.isEnabled = !converting && !typing
         lassoGesture.isEnabled = converting
+        textTapGesture.isEnabled = typing
         lassoGesture.allowedTouchTypes = fingerDraws
             ? [NSNumber(value: UITouch.TouchType.pencil.rawValue), NSNumber(value: UITouch.TouchType.direct.rawValue)]
             : [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
@@ -225,6 +237,7 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         needsSave = true
         scheduleSave()
         updateUndoState()
+        scheduleLiveText()
     }
 
     private func applyScratchOut(_ scratch: PKStroke) {
@@ -368,15 +381,116 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         }
         guard !indices.isEmpty else { return }
 
+        if currentTool == .shapes {
+            cleanUpShapes(indices)
+            return
+        }
+
         let selected = PKDrawing(strokes: indices.map { strokes[$0] })
         let bounds = selected.bounds
+        let solvingMath = currentTool == .math
         editor.isRecognizing = true
-        let language = settings.recognitionLanguage
+        // Math is digits and symbols, which English recognition reads most reliably.
+        let language = solvingMath ? "en-US" : settings.recognitionLanguage
         Task { @MainActor in
             defer { editor.isRecognizing = false }
             let text = (try? await HandwritingRecognizer.recognize(selected, language: language)) ?? ""
-            editor.conversion = ConversionRequest(pageID: page.id, strokeIndices: indices, bounds: bounds, text: text)
+            if solvingMath {
+                let solutions = MathSolver.solve(text)
+                editor.conversion = ConversionRequest(
+                    pageID: page.id, strokeIndices: indices, bounds: bounds,
+                    text: solutions.isEmpty ? text : solutions.map { "\($0.expression) = \($0.answer)" }.joined(separator: "\n"),
+                    mode: .math,
+                    answer: solutions.isEmpty ? nil : solutions.map(\.answer).joined(separator: "\n"))
+            } else {
+                editor.conversion = ConversionRequest(pageID: page.id, strokeIndices: indices, bounds: bounds, text: text)
+            }
         }
+    }
+
+    // MARK: - Diagram cleanup
+
+    private func cleanUpShapes(_ indices: [Int]) {
+        guard let page else { return }
+        var strokes = canvasView.drawing.strokes
+        var cleaned = 0
+        for index in indices {
+            if let shape = ShapeRecognizer.cleaned(strokes[index]) {
+                strokes[index] = shape
+                cleaned += 1
+            }
+        }
+        guard cleaned > 0 else {
+            editor?.notice = "No shapes found. Circle a line, circle, triangle, rectangle or polygon."
+            return
+        }
+        applyEdit(drawing: PKDrawing(strokes: strokes), textBlocks: page.textBlocks, actionName: "Clean Up Shapes")
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        editor?.notice = "Straightened \(cleaned) shape\(cleaned == 1 ? "" : "s")"
+    }
+
+    // MARK: - Typing
+
+    @objc private func handleTextTap(_ gesture: UITapGestureRecognizer) {
+        guard let page else { return }
+        let zoom = canvasView.zoomScale
+        let location = gesture.location(in: canvasView)
+        let point = CGPoint(x: location.x / zoom, y: location.y / zoom)
+
+        // Tapping existing text edits it; tapping empty paper starts a new text box.
+        if let block = page.textBlocks.first(where: { $0.frame.insetBy(dx: -8, dy: -8).contains(point) }) {
+            onEditTextBlock?(block)
+            return
+        }
+        let flows = page.kind == .document
+        let x = flows ? paragraphMargin : point.x
+        let width = flows ? page.width - paragraphMargin * 2 : min(420, page.width - point.x - 20)
+        onEditTextBlock?(TextBlock(text: "", x: x, y: point.y - 14, width: max(width, 160), height: 34,
+                                   fontSize: 22, flows: flows ? true : nil))
+    }
+
+    // MARK: - Live Text
+
+    /// After a short pause in writing, reads the line you just wrote.
+    private func scheduleLiveText() {
+        liveTextWorkItem?.cancel()
+        liveTextTask?.cancel()
+        editor?.livePreview = nil
+        guard settings.liveTextPreview, currentTool == .pen, page?.kind == .document else { return }
+        let item = DispatchWorkItem { [weak self] in self?.readCurrentLine() }
+        liveTextWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: item)
+    }
+
+    private func readCurrentLine() {
+        guard let page, let editor, let last = canvasView.drawing.strokes.last else { return }
+        let strokes = canvasView.drawing.strokes
+        // The current line: recent pen strokes that share a band with the last stroke.
+        let band = last.renderBounds.insetBy(dx: -10_000, dy: -PaperBackgroundView.lineSpacing * 0.35)
+        let cutoff = last.path.creationDate.addingTimeInterval(-60)
+        let indices = strokes.indices.filter { index in
+            let stroke = strokes[index]
+            return stroke.ink.inkType != .marker && stroke.path.creationDate >= cutoff
+                && band.intersects(stroke.renderBounds)
+        }
+        guard !indices.isEmpty else { return }
+        let line = PKDrawing(strokes: indices.map { strokes[$0] })
+        let language = settings.recognitionLanguage
+        let count = strokes.count
+        liveTextTask = Task { @MainActor [weak self] in
+            let text = (try? await HandwritingRecognizer.recognize(line, language: language)) ?? ""
+            guard let self, !Task.isCancelled, self.canvasView.drawing.strokes.count == count,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            editor.livePreview = LivePreview(pageID: page.id, strokeIndices: indices, bounds: line.bounds,
+                                             text: text.replacingOccurrences(of: "\n", with: " "))
+        }
+    }
+
+    func convertLivePreview() {
+        guard let preview = editor?.livePreview else { return }
+        editor?.livePreview = nil
+        applyConversion(ConversionRequest(pageID: preview.pageID, strokeIndices: preview.strokeIndices,
+                                          bounds: preview.bounds, text: preview.text))
     }
 
     /// Swaps the circled ink for a typeset text block.
@@ -388,15 +502,55 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         let remove = Set(request.strokeIndices)
         let strokes = canvasView.drawing.strokes
         guard remove.allSatisfy({ $0 < strokes.count }) else { return }
+        let remaining = PKDrawing(strokes: strokes.enumerated().filter { !remove.contains($0.offset) }.map(\.element))
 
         let lines = CGFloat(max(1, text.components(separatedBy: "\n").count))
         let fontSize = min(48, max(14, request.bounds.height / lines * 0.62))
-        let block = TextBlock(text: text, x: request.bounds.minX, y: request.bounds.minY,
-                              width: max(request.bounds.width, 120), height: request.bounds.height,
-                              fontSize: fontSize)
-        applyEdit(drawing: PKDrawing(strokes: strokes.enumerated().filter { !remove.contains($0.offset) }.map(\.element)),
-                  textBlocks: page.textBlocks + [block],
-                  actionName: "Convert")
+        var blocks = page.textBlocks
+
+        if page.kind == .document {
+            // Document pages: converted text becomes a flowing paragraph across the page.
+            // Writing right below a paragraph continues it, and the text rewraps.
+            let continues = blocks.lastIndex { block in
+                block.flows == true && request.bounds.minY - block.frame.maxY < PaperBackgroundView.lineSpacing * 1.6
+                    && request.bounds.minY >= block.frame.minY
+            }
+            if let index = continues {
+                blocks[index].text += (request.mode == .math ? "\n" : " ") + text
+                blocks[index].height = paragraphHeight(blocks[index])
+            } else {
+                var block = TextBlock(text: text, x: paragraphMargin, y: request.bounds.minY,
+                                      width: page.width - paragraphMargin * 2, height: request.bounds.height,
+                                      fontSize: fontSize, flows: true)
+                block.height = paragraphHeight(block)
+                blocks.append(block)
+            }
+        } else {
+            blocks.append(TextBlock(text: text, x: request.bounds.minX, y: request.bounds.minY,
+                                    width: max(request.bounds.width, 120), height: request.bounds.height,
+                                    fontSize: fontSize))
+        }
+        applyEdit(drawing: remaining, textBlocks: blocks, actionName: "Convert")
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    /// Keeps the handwritten calculation and writes the answer next to it.
+    func addMathAnswer(_ request: ConversionRequest) {
+        guard let page, request.pageID == page.id, let answer = request.answer else { return }
+        let fontSize = min(44, max(16, request.bounds.height * 0.55))
+        let block = TextBlock(text: "= " + answer, x: request.bounds.maxX + 12, y: request.bounds.minY,
+                              width: max(120, CGFloat(answer.count + 2) * fontSize * 0.62), height: request.bounds.height,
+                              fontSize: fontSize)
+        applyEdit(drawing: canvasView.drawing, textBlocks: page.textBlocks + [block], actionName: "Solve")
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    /// Height a paragraph needs at its width, so scratch-out and continuing paragraphs line up.
+    private func paragraphHeight(_ block: TextBlock) -> Double {
+        let rect = (block.text as NSString).boundingRect(
+            with: CGSize(width: block.width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: UIFont.systemFont(ofSize: block.fontSize)], context: nil)
+        return ceil(rect.height) + 6
     }
 }

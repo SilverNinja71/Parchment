@@ -24,7 +24,7 @@ struct SettingsView: View {
                         HStack {
                             ThemedLabel("Sync", icon: .sync)
                             Spacer()
-                            Text(sync.connection?.service.title ?? "Off").foregroundStyle(.secondary)
+                            Text(sync.connections.isEmpty ? "Off" : sync.connections.count == 1 ? sync.connections[0].service.title : "\(sync.connections.count) places").foregroundStyle(.secondary)
                         }
                     }
                     NavigationLink {
@@ -37,13 +37,14 @@ struct SettingsView: View {
                 Section {
                     Toggle("Draw with Finger", isOn: $settings.fingerDraws)
                     Toggle("Scratch Out to Erase", isOn: $settings.scratchOutToErase)
+                    Toggle("Live Text Preview", isOn: $settings.liveTextPreview)
                     Picker("Handwriting Language", selection: $settings.recognitionLanguage) {
                         ForEach(languages, id: \.code) { Text($0.name).tag($0.code) }
                     }
                 } header: {
                     Text("Writing")
                 } footer: {
-                    Text("With Draw with Finger off, Apple Pencil writes and your finger scrolls — just like MyScript's Active Pen. Scribble over ink to erase it. Double-tap Apple Pencil to switch to the eraser.")
+                    Text("With Draw with Finger off, Apple Pencil writes and your finger scrolls — just like MyScript's Active Pen. Scribble over ink to erase it. Double-tap Apple Pencil to switch to the eraser. Live Text Preview shows what Parchment reads from the line you're writing on Document pages, so you can convert it in one tap.")
                 }
 
                 Section("New Pages") {

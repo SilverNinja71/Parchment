@@ -2,7 +2,7 @@ import SwiftUI
 import PencilKit
 
 enum EditorTool: String, CaseIterable, Identifiable {
-    case pen, highlighter, eraser, lasso, convert
+    case pen, highlighter, eraser, lasso, text, convert, math, shapes
 
     var id: String { rawValue }
 
@@ -12,7 +12,10 @@ enum EditorTool: String, CaseIterable, Identifiable {
         case .highlighter: return .highlighter
         case .eraser: return .eraser
         case .lasso: return .lasso
+        case .text: return .typeText
         case .convert: return .convert
+        case .math: return .math
+        case .shapes: return .shapes
         }
     }
 
@@ -22,7 +25,28 @@ enum EditorTool: String, CaseIterable, Identifiable {
         case .highlighter: return "Highlighter"
         case .eraser: return "Eraser"
         case .lasso: return "Lasso"
+        case .text: return "Type text"
         case .convert: return "Convert to text"
+        case .math: return "Solve math"
+        case .shapes: return "Clean up shapes"
+        }
+    }
+
+    /// Tools that work by circling ink (instead of drawing).
+    var circlesInk: Bool { self == .convert || self == .math || self == .shapes }
+
+    /// Tools with a size/style popover when tapped again.
+    var hasOptions: Bool { self == .pen || self == .highlighter || self == .eraser }
+
+    /// Short instruction shown in the toolbar while the tool is selected.
+    var hint: String? {
+        switch self {
+        case .lasso: return "Circle ink to move, copy or resize it"
+        case .text: return "Tap the page to type"
+        case .convert: return "Circle handwriting to convert it"
+        case .math: return "Circle a calculation to solve it"
+        case .shapes: return "Circle rough shapes to straighten them"
+        default: return nil
         }
     }
 }
@@ -50,11 +74,24 @@ enum EraserMode: String, CaseIterable, Identifiable {
 
 /// Strokes the user circled with the Convert tool, plus what Vision read from them.
 struct ConversionRequest: Identifiable {
+    enum Mode { case text, math }
+
     let id = UUID()
     let pageID: UUID
     let strokeIndices: [Int]
     let bounds: CGRect
     var text: String
+    var mode: Mode = .text
+    /// For math: the result, shown next to the ink or typed in place of it.
+    var answer: String?
+}
+
+/// What Live Text read from the line you're writing right now.
+struct LivePreview: Equatable {
+    let pageID: UUID
+    let strokeIndices: [Int]
+    let bounds: CGRect
+    let text: String
 }
 
 /// Tool state for the notebook editor (shared by the toolbar and the canvas).
@@ -89,6 +126,9 @@ final class EditorModel: ObservableObject {
     @Published var canRedo = false
     @Published var isRecognizing = false
     @Published var conversion: ConversionRequest?
+    @Published var livePreview: LivePreview?
+    /// A short message shown at the bottom of the editor ("Couldn't find any shapes").
+    @Published var notice: String?
 
     private(set) var previousTool: EditorTool = .eraser
     weak var canvas: PageCanvasController?
@@ -101,7 +141,7 @@ final class EditorModel: ObservableObject {
 
     var pkTool: PKTool {
         switch tool {
-        case .pen, .convert:
+        case .pen, .text, .convert, .math, .shapes:
             return PKInkingTool(penStyle.inkType, color: Self.penColors[penColorIndex], width: penWidth)
         case .highlighter:
             return PKInkingTool(.marker, color: Self.highlighterColors[highlighterColorIndex], width: highlighterWidth)
@@ -127,4 +167,6 @@ final class EditorModel: ObservableObject {
     func undo() { canvas?.undo() }
     func redo() { canvas?.redo() }
     func applyConversion(_ request: ConversionRequest) { canvas?.applyConversion(request) }
+    func addMathAnswer(_ request: ConversionRequest) { canvas?.addMathAnswer(request) }
+    func convertLivePreview() { canvas?.convertLivePreview() }
 }

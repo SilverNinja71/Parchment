@@ -20,6 +20,7 @@ struct LibraryView: View {
     @State private var coverTarget: Notebook?
     @State private var deleteTarget: Notebook?
     @State private var newTitle = ""
+    @ObservedObject private var handwriting = HandwritingIndex.shared
 
     private var notebooks: [Notebook] {
         let query = search.trimmingCharacters(in: .whitespaces)
@@ -58,6 +59,7 @@ struct LibraryView: View {
                             .contextMenu { menu(for: notebook) }
                         }
                     }
+                    if !search.trimmingCharacters(in: .whitespaces).isEmpty { searchResults }
                 }
             }
             .padding(28)
@@ -153,6 +155,56 @@ struct LibraryView: View {
             Spacer()
         }
         .foregroundStyle(Color.accentColor)
+    }
+
+    /// Matches inside notes: typed text and (once indexed) handwriting.
+    @ViewBuilder
+    private var searchResults: some View {
+        let hits = handwriting.search(search, in: store.notebooks(in: subject))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Found in your notes", systemImage: "magnifyingglass").font(.headline)
+                if handwriting.isIndexing {
+                    ProgressView().controlSize(.small)
+                    Text("Reading handwriting…").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if hits.isEmpty {
+                Text("No matches inside notes yet.").foregroundStyle(.secondary)
+            }
+            ForEach(hits) { hit in
+                Button {
+                    NotebookView.pendingPages[hit.notebookID] = hit.pageID
+                    path.append(hit.notebookID)
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: hit.handwritten ? "pencil.and.scribble" : "textformat")
+                            .foregroundStyle(Style.selection)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("\(store.notebook(hit.notebookID)?.title ?? "Notebook") · Page \(hit.pageNumber)")
+                                .font(.subheadline.bold())
+                            Text(highlighted(hit.snippet)).font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Style.cardRadius))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    private func highlighted(_ snippet: String) -> AttributedString {
+        var text = AttributedString(snippet)
+        let query = search.trimmingCharacters(in: .whitespaces)
+        if let range = text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) {
+            text[range].foregroundColor = .primary
+            text[range].font = .subheadline.bold()
+        }
+        return text
     }
 
     private var emptyState: some View {

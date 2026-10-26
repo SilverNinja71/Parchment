@@ -38,7 +38,7 @@ struct EditorToolbar: View {
         let selected = editor.tool == tool
         return Button {
             Style.tap()
-            if selected, tool != .lasso, tool != .convert {
+            if selected, tool.hasOptions {
                 showOptions = true
             } else {
                 withAnimation(Style.spring) { editor.tool = tool }
@@ -67,20 +67,16 @@ struct EditorToolbar: View {
                     editor.highlighterColorIndex = index
                 }
             }
-        case .pen, .convert:
+        case .pen:
             ForEach(EditorModel.penColors.indices, id: \.self) { index in
                 swatch(EditorModel.penColors[index], selected: editor.penColorIndex == index) {
                     editor.penColorIndex = index
-                    editor.tool = .pen
                 }
             }
         case .eraser:
             Text(editor.eraserMode.title).font(.footnote).foregroundStyle(.secondary)
-        case .lasso:
-            Text("Circle ink to move, copy or resize it").font(.footnote).foregroundStyle(.secondary)
-        }
-        if editor.tool == .convert {
-            Text("Circle handwriting to convert it").font(.footnote).foregroundStyle(.secondary)
+        case .lasso, .text, .convert, .math, .shapes:
+            Text(editor.tool.hint ?? "").font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -104,7 +100,7 @@ struct ToolOptions: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             switch editor.tool {
-            case .pen, .convert:
+            case .pen:
                 Picker("Pen", selection: $editor.penStyle) {
                     ForEach(PenStyle.allCases) { Text($0.title).tag($0) }
                 }
@@ -117,7 +113,7 @@ struct ToolOptions: View {
                     ForEach(EraserMode.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.inline)
-            case .lasso:
+            default:
                 EmptyView()
             }
         }

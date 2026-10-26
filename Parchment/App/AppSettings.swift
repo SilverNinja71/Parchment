@@ -12,6 +12,8 @@ final class AppSettings: ObservableObject {
     @Published var defaultPageKind: PageKind { didSet { defaults.set(defaultPageKind.rawValue, forKey: Keys.pageKind) } }
     @Published var defaultPaper: PaperStyle { didSet { defaults.set(defaultPaper.rawValue, forKey: Keys.paper) } }
     @Published var recognitionLanguage: String { didSet { defaults.set(recognitionLanguage, forKey: Keys.language) } }
+    /// Shows what Parchment reads from the line you're writing, ready to convert in one tap.
+    @Published var liveTextPreview: Bool { didSet { defaults.set(liveTextPreview, forKey: Keys.liveText) } }
 
     private let defaults = UserDefaults.standard
 
@@ -21,6 +23,7 @@ final class AppSettings: ObservableObject {
         static let pageKind = "settings.defaultPageKind"
         static let paper = "settings.defaultPaper"
         static let language = "settings.recognitionLanguage"
+        static let liveText = "settings.liveTextPreview"
     }
 
     init() {
@@ -34,5 +37,6 @@ final class AppSettings: ObservableObject {
         defaultPageKind = PageKind(rawValue: defaults.string(forKey: Keys.pageKind) ?? "") ?? .document
         defaultPaper = PaperStyle(rawValue: defaults.string(forKey: Keys.paper) ?? "") ?? .ruled
         recognitionLanguage = defaults.string(forKey: Keys.language) ?? "automatic"
+        liveTextPreview = defaults.object(forKey: Keys.liveText) as? Bool ?? true
     }
 }

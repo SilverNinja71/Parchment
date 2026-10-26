@@ -73,6 +73,8 @@ struct TextBlock: Codable, Identifiable, Equatable {
     var width: Double
     var height: Double
     var fontSize: Double = 22
+    /// A paragraph that spans the page and wraps (reflows) as it grows.
+    var flows: Bool?
 
     var frame: CGRect {
         get { CGRect(x: x, y: y, width: width, height: height) }

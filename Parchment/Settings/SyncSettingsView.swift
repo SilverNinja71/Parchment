@@ -11,23 +11,36 @@ struct SyncSettingsView: View {
     @State private var showWebDAVSignIn = false
     @State private var signingIn: CloudService?
     @State private var errorMessage: String?
-    @State private var setupNeeded: CloudService?
-    @State private var confirmDisconnect = false
+    @State private var disconnecting: SyncEngine.Connection?
+
+    /// Services that need a developer app ID stay hidden until one is added (see README).
+    private var availableServices: [CloudService] { CloudService.allCases.filter { sync.isConfigured($0) } }
 
     var body: some View {
         Form {
-            if let connection = sync.connection {
+            if !sync.connections.isEmpty {
                 Section {
-                    HStack(spacing: 14) {
-                        ServiceIcon(service: connection.service)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(connection.service.title).font(.headline)
-                            Text(connection.accountName).font(.subheadline).foregroundStyle(.secondary)
-                            Label(connection.folder.displayPath, systemImage: "folder")
-                                .font(.footnote).foregroundStyle(.secondary)
+                    ForEach(sync.connections) { connection in
+                        HStack(spacing: 14) {
+                            ServiceIcon(service: connection.service)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(connection.service.title).font(.headline)
+                                Text(connection.accountName).font(.subheadline).foregroundStyle(.secondary)
+                                Label(connection.folder.displayPath, systemImage: "folder")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if sync.activeConnectionID == connection.id { ProgressView() }
+                            Menu {
+                                Button("Change Folder") { chooseFolder(for: connection.service) }
+                                Button("Stop Syncing Here", role: .destructive) { disconnecting = connection }
+                            } label: {
+                                Image(systemName: "ellipsis.circle").font(.title3)
+                            }
+                            .accessibilityLabel("Options for \(connection.service.title)")
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
 
                     Button {
                         Task { await sync.syncNow() }
@@ -40,17 +53,15 @@ struct SyncSettingsView: View {
                     }
                     Toggle("Sync Automatically", isOn: $sync.autoSync)
                     Toggle("Also Save PDF Copies", isOn: $sync.savePDFCopies)
-                    Button("Change Folder") { chooseFolder(for: connection.service) }
-                    Button("Stop Syncing", role: .destructive) { confirmDisconnect = true }
                 } header: {
-                    Text("Syncing To")
+                    Text(sync.connections.count == 1 ? "Syncing To" : "Syncing To \(sync.connections.count) Places")
                 } footer: {
-                    Text("Notebooks are saved as .parchment files you can open on any iPad with Parchment. Deleting a notebook here never deletes it from the cloud.")
+                    Text("Every place gets a full copy of every notebook, saved as .parchment files you can open on any iPad with Parchment. Deleting a notebook here never deletes it from the cloud.")
                 }
             }
 
             Section {
-                ForEach(CloudService.allCases) { service in
+                ForEach(availableServices) { service in
                     Button {
                         start(service)
                     } label: {
@@ -63,8 +74,8 @@ struct SyncSettingsView: View {
                             Spacer()
                             if signingIn == service {
                                 ProgressView()
-                            } else if sync.connection?.service == service {
-                                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                            } else if sync.connections.contains(where: { $0.service == service }) {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(Style.selection)
                             } else {
                                 Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.tertiary)
                             }
@@ -73,9 +84,9 @@ struct SyncSettingsView: View {
                     .disabled(signingIn != nil)
                 }
             } header: {
-                Text(sync.connection == nil ? "Choose Where to Sync" : "Switch To")
+                Text(sync.connections.isEmpty ? "Choose Where to Sync" : "Add Another Place")
             } footer: {
-                Text("Sign in, then pick any folder in your account. Parchment is free — syncing never needs a subscription.")
+                Text("Sign in, then pick any folder in your account. You can sync to as many places as you like. Parchment is free; syncing never needs a subscription.")
             }
         }
         .navigationTitle("Sync")
@@ -113,24 +124,17 @@ struct SyncSettingsView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .alert("\(setupNeeded?.title ?? "") needs an app ID", isPresented: Binding(get: { setupNeeded != nil }, set: { if !$0 { setupNeeded = nil } })) {
-            Button("OK", role: .cancel) {}
+        .confirmationDialog("Stop syncing to \(disconnecting?.service.title ?? "this place")?",
+                            isPresented: Binding(get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }),
+                            titleVisibility: .visible) {
+            Button("Stop and Sign Out", role: .destructive) { if let connection = disconnecting { sync.disconnect(connection, signOut: true) } }
+            Button("Stop but Stay Signed In") { if let connection = disconnecting { sync.disconnect(connection, signOut: false) } }
         } message: {
-            Text("Add your free \(setupNeeded?.title ?? "") developer app ID to CloudCredentials.swift, then rebuild. README.md walks you through it in a few minutes.")
-        }
-        .confirmationDialog("Stop syncing?", isPresented: $confirmDisconnect, titleVisibility: .visible) {
-            Button("Stop and Sign Out", role: .destructive) { sync.disconnect(signOut: true) }
-            Button("Stop but Stay Signed In") { sync.disconnect(signOut: false) }
-        } message: {
-            Text("Your notebooks stay on this iPad and in the cloud.")
+            Text("Your notebooks stay on this iPad and in that folder.")
         }
     }
 
     private func start(_ service: CloudService) {
-        guard sync.isConfigured(service) else {
-            setupNeeded = service
-            return
-        }
         let provider = sync.provider(for: service)
         switch service.signInStyle {
         case .folderPicker:
@@ -366,7 +370,7 @@ struct SyncStatusButton: View {
 
     var body: some View {
         Button {
-            if sync.connection == nil { action() } else { Task { await sync.syncNow() } }
+            if sync.connections.isEmpty { action() } else { Task { await sync.syncNow() } }
         } label: {
             switch sync.status {
             case .syncing:

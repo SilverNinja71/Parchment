@@ -4,15 +4,21 @@ Parchment is a free, privacy-first handwriting and note-taking app for iPad. It 
 
 Parchment is a community project, and contributions of every size are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
-- **Write** with Apple Pencil on ruled, grid, dotted or blank paper.
+- **Write** with Apple Pencil on lined, grid, dotted, dotted-lined or blank paper.
   - **Document** pages grow downward as you write.
   - **Freeform** pages are an endless canvas.
 - **Tools**: pen (ballpoint, pen, fountain), highlighter, eraser (whole stroke or pixel), lasso, ruler, undo/redo.
+- **Type text**: pick the **Type** tool and tap anywhere to add a text box, using the on-screen keyboard or a hardware keyboard. On Document pages, text boxes span the page and wrap like paragraphs.
 - **MyScript-style gestures**:
   - Scribble over ink to erase it (scratch-out).
   - Double-tap Apple Pencil to switch to the eraser.
   - Apple Pencil writes and your finger scrolls (turn on *Draw with Finger* to write with a finger).
 - **Convert to text**: circle handwriting with the Convert tool and it becomes typed text. Recognition runs on the iPad with Apple's Vision framework, so it's free and private.
+  - **Reflowing text**: on Document pages, converted text becomes a paragraph that spans the page and rewraps as it grows. Converting the line right below a paragraph continues that paragraph.
+  - **Live Text**: while you write on a Document page, a chip at the bottom shows what Parchment reads from your current line. Tap **Convert** to turn it into text in one step. Turn it off in Settings.
+- **Solve math**: circle a handwritten calculation with the **Solve** tool. It handles + − × ÷, powers, square roots, percent, π and parentheses. You can fix misread symbols before solving. **Add Answer** writes "= answer" beside your handwriting; **Convert** types the whole thing.
+- **Clean up diagrams**: circle rough shapes with the **Shapes** tool and Parchment redraws them neatly in the same ink: straight lines (snapped level or upright when close), circles, ellipses, triangles, rectangles and polygons. Undo restores your original strokes.
+- **Search inside handwriting**: the library search also finds words you wrote by hand and typed text. Tap a result to jump to that page. Parchment reads your pages in the background on the iPad; the search index never leaves your device.
 - **Study, built on active recall**:
   - **Recall Practice**: pick a subject or notebook. Each page appears with a timer so you can memorize it. Tap **Hide & Rewrite**, the page turns white, and you rewrite everything from memory. Tap **Done** to see the original and your rewrite side by side, then rate yourself 1–5.
   - **Flashcards (like Anki)**: decks with New and Due counts. You see the front, flip it, write the answer from memory, and tap a 1–5 rating at the bottom. **Done** then shows the correct answer next to yours.
@@ -25,7 +31,7 @@ Parchment is a community project, and contributions of every size are welcome. S
 - **Welcome to Parchment**: on first launch, a 4-page hands-on notebook walks you through scratch-out, convert to text, paper styles and covers, with a pulsing spotlight on each tool.
 - **Subjects**: a Notability-style sidebar files notebooks into subjects, and lets you study a whole subject at once.
 - **Import PDFs** and write on them. Export any notebook as a PDF or as a `.parchment` file you can AirDrop.
-- **Sync** to iCloud Drive, OneDrive, Google Drive, Dropbox, WebDAV/Nextcloud, or any storage app in the Files app (Box, pCloud, Proton Drive…). You sign in, then save notes in any folder you choose.
+- **Sync** to iCloud Drive, OneDrive, Google Drive, Dropbox, WebDAV/Nextcloud, or any storage app in the Files app (Box, pCloud, Proton Drive…). You sign in, then save notes in any folder you choose. You can **sync to several places at once**, and each one keeps a full copy.
 - **Personalization Kit**: a sheet you draw on to replace the app's name, logo, toolbar icons, notebook covers and title lettering with your own drawings.
 
 ---
@@ -214,15 +220,18 @@ Playground/         Generated Swift Playgrounds package (Parchment.swiftpm + zip
 
 ## What's different from MyScript (for now)
 
-MyScript's recognition engine is proprietary and paid. Parchment uses Apple's built-in Vision recognition instead. That covers converting circled handwriting to text in many languages.
+MyScript's recognition engine is proprietary and paid. Parchment uses Apple's built-in Vision recognition instead, which runs free and offline on the iPad. That affects a few things:
+- **Math** covers arithmetic written on one line. Fractions written as stacked numbers, equations with unknowns (solving for x), and calculus aren't supported yet.
+- **Diagrams** are cleaned up shape by shape. Arrows, connectors and text inside shapes aren't recognized yet.
+- **Live Text** reads one line at a time and works best with clear, medium-sized handwriting.
 
-Not built yet:
-- math and diagram recognition
-- reflowing typed text as you write
-- searching inside handwriting
-- multiple sync destinations at once
+Ideas and pull requests to improve any of these are very welcome.
 
-All of these can be added on top of this structure.
+## Publishing to the App Store
+
+[docs/AppStore.md](docs/AppStore.md) has the full listing (name, description, keywords, screenshots, review notes) and a checklist. The privacy policy is [docs/privacy.html](docs/privacy.html); turn on GitHub Pages (Settings → Pages → `main` branch, `/docs` folder) to publish it at a public link.
+
+Until OneDrive, Google Drive and Dropbox app IDs are added to `CloudCredentials.swift`, those three services are hidden in the app, so there are no buttons that don't work.
 
 ## Contributing
 

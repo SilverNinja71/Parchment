@@ -21,6 +21,9 @@ struct NotebookView: View {
     @State private var choosingPaper = false
     @AppStorage("hasCompletedTutorial") private var tutorialDone = false
 
+    /// A page to open to (set by search before navigating here).
+    static var pendingPages: [UUID: UUID] = [:]
+
     init(notebookID: UUID) {
         self.notebookID = notebookID
         // Open the PDF up front so the first page and thumbnails render with it.
@@ -65,18 +68,23 @@ struct NotebookView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
+            if let page = Self.pendingPages.removeValue(forKey: notebookID) { currentPageID = page }
             if currentPageID == nil { currentPageID = notebook?.pages.first?.id }
         }
         .onDisappear { editor.canvas?.saveNow() }
         .sheet(item: $editor.conversion) { request in
-            ConvertSheet(request: request) { editor.applyConversion($0) }
+            ConvertSheet(request: request, onConvert: { editor.applyConversion($0) },
+                         onAddAnswer: { editor.addMathAnswer($0) })
         }
         .sheet(item: $editingBlock) { block in
             TextBlockEditor(block: block) { updated in
                 guard let page = currentPage else { return }
+                let empty = updated.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 store.updatePage(page.id, in: notebookID) { page in
                     if let index = page.textBlocks.firstIndex(where: { $0.id == updated.id }) {
-                        page.textBlocks[index] = updated
+                        if empty { page.textBlocks.remove(at: index) } else { page.textBlocks[index] = updated }
+                    } else if !empty {
+                        page.textBlocks.append(updated) // a new text box from the Type tool
                     }
                 }
             } onDelete: {
@@ -138,6 +146,33 @@ struct NotebookView: View {
                 ProgressView("Reading your handwriting…")
                     .padding(24)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let preview = editor.livePreview, editor.tool == .pen {
+                // Live Text: what Parchment read from the line you're writing.
+                HStack(spacing: 12) {
+                    Image(systemName: "text.viewfinder").foregroundStyle(Style.selection)
+                    Text(preview.text).lineLimit(1).font(.body)
+                    Button("Convert") { editor.convertLivePreview() }
+                        .buttonStyle(.borderedProminent)
+                        .font(.subheadline.bold())
+                    Button { editor.livePreview = nil } label: { Image(systemName: "xmark").font(.caption.bold()) }
+                        .accessibilityLabel("Dismiss")
+                }
+                .padding(.leading, 18).padding(.trailing, 12).padding(.vertical, 8)
+                .frame(maxWidth: 560)
+                .background(.regularMaterial, in: Capsule())
+                .ambientShadow()
+                .padding(.bottom, message == nil ? 30 : 90)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(Style.spring, value: editor.livePreview)
+        .onChange(of: editor.notice) { _, notice in
+            if let notice {
+                show(notice)
+                editor.notice = nil
             }
         }
         .overlay(alignment: .bottom) {

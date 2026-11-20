@@ -395,8 +395,11 @@ struct RecallSessionView: View {
             let attemptRec = attemptDrawing.strokes.isEmpty
                 ? ""
                 : ((try? await HandwritingRecognizer.recognize(attemptDrawing, language: language)) ?? "")
+            // With nothing readable on the original (a bare PDF page, a diagram) there is
+            // nothing to grade against, so no score is shown.
+            let hasOriginal = !origFull.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             withAnimation(Style.spring) {
-                recallSummary = WorkChecker.compareRecall(originalText: origFull, attemptText: attemptRec)
+                recallSummary = hasOriginal ? WorkChecker.compareRecall(originalText: origFull, attemptText: attemptRec) : nil
             }
         }
     }

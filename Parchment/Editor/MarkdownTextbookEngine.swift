@@ -95,29 +95,21 @@ enum MarkdownTextbookEngine {
             .replacingOccurrences(of: "$", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // \frac{a}{b} -> (a)/(b)
-        if let fracRegex = try? NSRegularExpression(pattern: #"\\frac\{([^{}]+)\}\{([^{}]+)\}"#) {
-            let ns = s as NSString
-            let matches = fracRegex.matches(in: s, range: NSRange(location: 0, length: ns.length)).reversed()
-            for m in matches {
-                let num = ns.substring(with: m.range(at: 1))
-                let den = ns.substring(with: m.range(at: 2))
-                if let r = Range(m.range, in: s) {
-                    s.replaceSubrange(r, with: "(\(num))/(\(den))")
-                }
+        // Groups are rewritten from the inside out, so nested ones such as
+        // \frac{-b \pm \sqrt{b^{2} - 4ac}}{2a} come out whole.
+        let groups: [(pattern: String, template: String)] = [
+            (#"\^\{2\}"#, "²"), (#"\^\{3\}"#, "³"),
+            (#"\\sqrt\{([^{}]*)\}"#, "√($1)"),
+            (#"\\frac\{([^{}]*)\}\{([^{}]*)\}"#, "($1)/($2)"),
+            (#"\^\{([^{}]*)\}"#, "^($1)"),
+            (#"_\{([^{}]*)\}"#, "_($1)")
+        ]
+        for _ in 0..<8 {
+            let before = s
+            for group in groups {
+                s = s.replacingOccurrences(of: group.pattern, with: group.template, options: .regularExpression)
             }
-        }
-
-        // \sqrt{x} -> √(x)
-        if let sqrtRegex = try? NSRegularExpression(pattern: #"\\sqrt\{([^{}]+)\}"#) {
-            let ns = s as NSString
-            let matches = sqrtRegex.matches(in: s, range: NSRange(location: 0, length: ns.length)).reversed()
-            for m in matches {
-                let inner = ns.substring(with: m.range(at: 1))
-                if let r = Range(m.range, in: s) {
-                    s.replaceSubrange(r, with: "√(\(inner))")
-                }
-            }
+            if s == before { break }
         }
 
         let symbols: [(String, String)] = [
@@ -134,7 +126,13 @@ enum MarkdownTextbookEngine {
             (#"^{2}"#, "²"), (#"^{3}"#, "³"), (#"^2"#, "²"), (#"^3"#, "³")
         ]
         for (k, v) in symbols {
-            s = s.replacingOccurrences(of: k, with: v)
+            if k.hasPrefix("\\") {
+                // Whole commands only: \pm, but not the start of \pmod.
+                s = s.replacingOccurrences(of: NSRegularExpression.escapedPattern(for: k) + "(?![A-Za-z])",
+                                           with: v, options: .regularExpression)
+            } else {
+                s = s.replacingOccurrences(of: k, with: v)
+            }
         }
         return s
     }
@@ -142,8 +140,11 @@ enum MarkdownTextbookEngine {
     static func extractWikiLinks(from text: String) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: #"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]"#) else { return [] }
         let ns = text as NSString
-        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).map {
-            ns.substring(with: $0.range(at: 1)).trimmingCharacters(in: .whitespaces)
+        // Each link once, in order of first appearance (they are listed as buttons).
+        var seen = Set<String>()
+        return regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap {
+            let link = ns.substring(with: $0.range(at: 1)).trimmingCharacters(in: .whitespaces)
+            return seen.insert(link.lowercased()).inserted ? link : nil
         }
     }
 
@@ -178,8 +179,8 @@ struct TextbookPreviewSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var combinedMarkdown: String {
-        notebook.pages.flatMap(\.textBlocks)
-            .sorted { $0.y < $1.y }
+        // Page by page, top to bottom: a block's y is measured within its own page.
+        notebook.pages.flatMap { $0.textBlocks.sorted { $0.y < $1.y } }
             .map(\.text)
             .joined(separator: "\n")
     }

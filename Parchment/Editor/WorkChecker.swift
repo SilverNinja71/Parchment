@@ -241,6 +241,8 @@ public enum WorkChecker {
         guard !clusters.isEmpty else { return [] }
 
         for i in clusters.indices {
+            // A newer pass has replaced this one: stop reading handwriting for it.
+            if Task.isCancelled { return [] }
             if let direct = clusters[i].recognizedText {
                 cache[clusters[i].fingerprint] = direct
                 continue
@@ -566,13 +568,14 @@ public enum WorkChecker {
                 if abs(prevVal - currVal) > 1e-6 {
                     let exp = AlgebraicEngine.formatValue(prevEval.value, unit: prevEval.unit)
                     let got = expectedStr
+                    // No fix is offered: which of the two lines is wrong can't be told from here.
                     let msg = "Step discrepancy: previous line equals \(exp), but this line equals \(got)"
                     return WorkVerificationResult(
                         pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
                         textBlockID: textBlockID, bounds: bounds, rawText: line,
                         normalizedExpression: line, category: .arithmetic,
                         status: .slip(expected: exp, got: got, explanation: msg),
-                        message: msg, suggestedCorrection: exp
+                        message: msg
                     )
                 }
             }
@@ -660,13 +663,15 @@ public enum WorkChecker {
                 guard bracketed.contains("("), let poly else { continue }
                 let expanded = AlgebraicEngine.formatPolynomial(poly, variable: v)
                 let msg = "Expansion slip: \(bracketed) simplifies to \(expanded), not \(other)"
+                // The whole corrected line, so the fix is right whichever side has the brackets.
+                let fixedLine = bracketed == left ? "\(left) = \(expanded)" : "\(expanded) = \(right)"
                 return WorkVerificationResult(
                     pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
                     textBlockID: textBlockID, bounds: bounds, rawText: rawText,
                     normalizedExpression: rawText, category: .algebra,
                     status: .slip(expected: expanded, got: other, explanation: msg),
                     message: msg,
-                    suggestedCorrection: expanded
+                    suggestedCorrection: fixedLine
                 )
             }
             let msg = "No solution: sides differ by a constant"
@@ -1056,7 +1061,15 @@ public enum WorkChecker {
             }
         }
 
-        let termScore = origTokens.isEmpty ? 1.0 : Double(matched.count) / Double(origTokens.count)
+        let termScore: Double
+        if origTokens.isEmpty {
+            // A short answer ("42", "x = 5") has no key terms: the answer itself must be there.
+            func compact(_ text: String) -> String { text.lowercased().filter { !$0.isWhitespace } }
+            let wanted = compact(originalText)
+            termScore = !wanted.isEmpty && compact(attemptText).contains(wanted) ? 1.0 : 0.0
+        } else {
+            termScore = Double(matched.count) / Double(origTokens.count)
+        }
         let penalty = Double(slips.count) * 0.15
         let accuracy = max(0.0, min(1.0, termScore - penalty))
 
@@ -1071,7 +1084,9 @@ public enum WorkChecker {
 
         let pct = Int((accuracy * 100).rounded())
         let feedback: String
-        if slips.isEmpty && missed.isEmpty {
+        if origTokens.isEmpty {
+            feedback = accuracy >= 0.88 ? "Spot on! Your answer matches." : "Your answer doesn't match the original yet."
+        } else if slips.isEmpty && missed.isEmpty {
             feedback = "Spot on! You recalled all \(matched.count) key concepts accurately."
         } else if !slips.isEmpty {
             feedback = "Recalled \(pct)% of key concepts, with \(slips.count) calculation slip\(slips.count == 1 ? "" : "s") to review."

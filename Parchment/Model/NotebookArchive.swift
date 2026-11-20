@@ -18,6 +18,8 @@ struct NotebookArchive: Codable {
     var pdf: Data?
     /// The notebook's imported cover image (absent in older archives).
     var coverImage: Data?
+    /// Media Vault files by file name (absent in older archives).
+    var media: [String: Data]?
 
     func encoded() throws -> Data {
         let encoder = PropertyListEncoder()

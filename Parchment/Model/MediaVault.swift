@@ -24,7 +24,14 @@ final class MediaVault {
     }
 
     func fileURL(for attachment: MediaAttachment, in notebookID: UUID) -> URL {
-        folder(for: notebookID).appendingPathComponent(attachment.filename)
+        folder(for: notebookID).appendingPathComponent(Self.safeFileName(attachment.filename, fallback: attachment.id.uuidString))
+    }
+
+    /// The last path component only. Attachment names arrive in notebooks that were shared or
+    /// synced, so "../../x" must never reach outside the notebook's own media folder.
+    static func safeFileName(_ name: String, fallback: String) -> String {
+        let last = (name as NSString).lastPathComponent
+        return last.isEmpty || last == "." || last == ".." || last == "/" ? fallback : last
     }
 
     /// Copies a user-picked file into the notebook's private Media Vault and returns a `MediaAttachment`.

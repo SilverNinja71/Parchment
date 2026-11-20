@@ -115,6 +115,10 @@ struct WorkCheckerTestSuite {
         )
         assert(recall.matchedTerms.contains("prophase") && recall.missedTerms.contains("telophase"))
         assert(!recall.verifiedEquations.isEmpty)
+        // A short answer has no key terms, so the answer itself has to match; a blank attempt scores nothing.
+        assert(WorkChecker.compareRecall(originalText: "42", attemptText: "").suggestedRating == 1)
+        assert(WorkChecker.compareRecall(originalText: "x = 5", attemptText: "x=5").suggestedRating == 5)
+        assert(WorkChecker.compareRecall(originalText: "Na", attemptText: "Cl").suggestedRating == 1)
         print("✓ 14. Active Recall verification summary: \(recall.feedback) (Suggested rating: \(recall.suggestedRating)/5)")
 
         // 15. Correct work must not be flagged: precedence, rounding, separators, mixed numbers
@@ -147,9 +151,9 @@ struct WorkCheckerTestSuite {
 
         // 17. Expansion slips name the bracketed side, whichever side it is on
         let expandLeft = WorkChecker.evaluate(text: "2(x + 3) = 2x + 9", pageID: pageID, bounds: .zero)
-        assert(expandLeft.isSlip && expandLeft.suggestedCorrection == "2x + 6")
+        assert(expandLeft.isSlip && expandLeft.suggestedCorrection == "2(x + 3) = 2x + 6")
         let expandRight = WorkChecker.evaluate(text: "2x + 6 = 2(x + 4)", pageID: pageID, bounds: .zero)
-        assert(expandRight.isSlip && expandRight.suggestedCorrection == "2x + 8")
+        assert(expandRight.isSlip && expandRight.suggestedCorrection == "2x + 8 = 2(x + 4)")
         print("✓ 17. Expansion slips: \(expandLeft.message)")
 
         // 18. A number, list number or date above a line is not the start of that calculation
@@ -160,7 +164,7 @@ struct WorkCheckerTestSuite {
         let column = WorkChecker.evaluate(text: "8", pageID: pageID, bounds: .zero, previousLineText: "7")
         assert(!column.isSlip, "Two numbers on consecutive lines are not a step, got: \(column.message)")
         let carriedOn = WorkChecker.evaluate(text: "38 + 4 = 42", pageID: pageID, bounds: .zero, previousLineText: "12 * 3 + 4")
-        assert(carriedOn.isSlip, "A line that carries on a calculation wrongly should still be caught")
+        assert(carriedOn.isSlip && carriedOn.suggestedCorrection == nil, "A line that carries on a calculation wrongly should still be caught")
         print("✓ 18. Unrelated neighbouring lines are left alone")
 
         // 19. Style fixes keep the sentence's capital letter

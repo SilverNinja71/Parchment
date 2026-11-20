@@ -45,7 +45,8 @@ struct RootView: View {
             NavigationStack(path: $path) {
                 detail
                     .navigationDestination(for: UUID.self) { id in
-                        NotebookView(notebookID: id)
+                        // A [[wiki-link]] in the Textbook view opens the notebook it names.
+                        NotebookView(notebookID: id) { linked in path = [linked] }
                     }
             }
         }
@@ -123,15 +124,17 @@ struct SidebarView: View {
                     .tag(SidebarItem.allNotes)
             }
 
-            Section("Folders") {
-                ForEach(uniqueFolders, id: \.self) { folder in
-                    Label {
-                        Text(folder)
-                    } icon: {
-                        Image(systemName: "folder").foregroundStyle(Style.accent)
+            if !uniqueFolders.isEmpty {
+                Section("Folders") {
+                    ForEach(uniqueFolders, id: \.self) { folder in
+                        Label {
+                            Text(folder)
+                        } icon: {
+                            Image(systemName: "folder").foregroundStyle(Style.accent)
+                        }
+                        .badge(store.notebooks.filter { ($0.folderPath ?? "") == folder || ($0.folderPath ?? "").hasPrefix(folder + "/") }.count)
+                        .tag(SidebarItem.folder(folder))
                     }
-                    .badge(store.notebooks.filter { ($0.folderPath ?? "") == folder || ($0.folderPath ?? "").hasPrefix(folder + "/") }.count)
-                    .tag(SidebarItem.folder(folder))
                 }
             }
 

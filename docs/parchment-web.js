@@ -1195,7 +1195,12 @@
         else if (fb.kind === "needsAttention") mathSlips.push(fb.message);
       }
 
-      let baseScore = origTerms.length === 0 ? (attemptText.trim() ? 1.0 : 0.0) : matched.length / origTerms.length;
+      // A short answer ("42", "x = 5") has no key terms: the answer itself must be there.
+      const compact = (text) => text.toLowerCase().replace(/\s+/g, "");
+      let baseScore =
+        origTerms.length === 0
+          ? (compact(originalText) && compact(attemptText).includes(compact(originalText)) ? 1.0 : 0.0)
+          : matched.length / origTerms.length;
       if (mathSlips.length > 0) {
         baseScore = Math.max(0, baseScore - 0.15 * mathSlips.length);
       }

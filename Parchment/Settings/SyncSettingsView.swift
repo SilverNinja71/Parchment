@@ -137,18 +137,27 @@ struct SyncSettingsView: View {
         }
     }
 
+    private var syncFailed: Bool {
+        if case .failed = sync.status { return true }
+        return false
+    }
+
     /// Says plainly whether your work is safe.
     private var accountSummary: some View {
-        Section {
+        let needsAttention = sync.connections.isEmpty || syncFailed
+        return Section {
             HStack(alignment: .top, spacing: 14) {
-                Image(systemName: sync.connections.isEmpty ? "exclamationmark.icloud" : "checkmark.icloud.fill")
+                Image(systemName: needsAttention ? "exclamationmark.icloud" : "checkmark.icloud.fill")
                     .font(.system(size: 34))
-                    .foregroundStyle(sync.connections.isEmpty ? Color.orange : Style.selection)
+                    .foregroundStyle(needsAttention ? Color.orange : Style.selection)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(sync.connections.isEmpty ? "Sign in to keep your work safe" : "Your work is backed up")
+                    Text(sync.connections.isEmpty ? "Sign in to keep your work safe"
+                         : syncFailed ? "Backup isn't working right now" : "Your work is backed up")
                         .font(.headline)
                     Text(sync.connections.isEmpty
                          ? "Right now your work is only on this iPad. If you delete BelloBook, it goes with it. Sign in below and BelloBook keeps a copy of your notebooks, media vault, flashcards, study progress and drawings in your own account."
+                         : syncFailed
+                         ? "The last sync didn't finish, so your newest changes may only be on this iPad. The reason is shown below; tap Sync Now to try again."
                          : "Your notebooks, media vault, flashcards, study progress and drawings are saved to your account. Sign in to the same place on any iPad, or after reinstalling, and it all comes back.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -310,7 +319,7 @@ struct WebDAVSignInView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField(service == .amphiServer ? "http://localhost:8080" : "https://cloud.example.com/remote.php/dav/files/you/", text: $server)
+                    TextField(service == .amphiServer ? "https://notes.example.com" : "https://cloud.example.com/remote.php/dav/files/you/", text: $server)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()

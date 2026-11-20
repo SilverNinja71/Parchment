@@ -1,46 +1,87 @@
 import Foundation
 
-/// Two-way Obsidian Vault Markdown (.md) sync helper for BelloBook.
-/// Exports notebooks with YAML frontmatter (`title`, `folder`, `tags`, `updated`),
-/// `[[Wiki-Links]]`, `> [!callout]` textbook blocks, and `$...$` / `$$...$$` LaTeX,
-/// and imports Obsidian `.md` notes cleanly as BelloBook notebooks.
+/// Obsidian Vault Markdown (.md) helper for BelloBook.
+/// Writes notebooks as notes with YAML frontmatter (`title`, `folder`, `tags`, `updated`),
+/// `[[Wiki-Links]]`, `> [!callout]` textbook blocks, and `$...$` / `$$...$$` LaTeX. Syncing with
+/// an Obsidian vault uses `markdown(for:)`; reading notes back in (`importMarkdownFiles`) is not
+/// wired to any screen yet.
 @MainActor
 enum ObsidianVaultSync {
+
+    /// One notebook as an Obsidian note: YAML frontmatter, a title heading, then its typed text
+    /// page by page. Handwriting stays in the notebook's `.parchment` file.
+    static func markdown(for nb: Notebook) -> String {
+        // A block's y is measured within its own page, so sort inside each page.
+        let body = nb.pages
+            .flatMap { $0.textBlocks.sorted { $0.y < $1.y } }
+            .map(\.text)
+            .joined(separator: "\n\n")
+        let tags = MarkdownTextbookEngine.extractTags(from: body)
+
+        var md = "---\n"
+        md += "title: \(yaml(nb.title))\n"
+        if let folder = nb.folderPath, !folder.isEmpty { md += "folder: \(yaml(folder))\n" }
+        if let subject = nb.subject, !subject.isEmpty { md += "subject: \(yaml(subject))\n" }
+        if !tags.isEmpty { md += "tags: [\(tags.joined(separator: ", "))]\n" }
+        md += "updated: \(ISO8601DateFormatter().string(from: nb.modified))\n"
+        md += "bellobook_id: \(nb.id.uuidString)\n"
+        md += "---\n\n"
+        md += "# \(nb.title.components(separatedBy: .newlines).joined(separator: " "))\n\n"
+        md += body.isEmpty ? "_Handwritten or blank logbook page._\n" : body + "\n"
+        return md
+    }
+
+    /// A YAML double-quoted string: backslashes and quotes escaped, kept on one line.
+    static func yaml(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+        return "\"\(escaped)\""
+    }
+
+    /// The notebook a Markdown note was written from, if BelloBook wrote it.
+    static func notebookID(inFrontmatterOf markdown: String) -> UUID? {
+        guard markdown.hasPrefix("---") else { return nil }
+        for line in markdown.components(separatedBy: .newlines).dropFirst() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "---" { break }
+            if trimmed.hasPrefix("bellobook_id:") {
+                let value = trimmed.dropFirst("bellobook_id:".count)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+                return UUID(uuidString: value)
+            }
+        }
+        return nil
+    }
 
     static func exportVault(notebooks: [Notebook], to vaultFolderURL: URL) throws -> Int {
         let accessed = vaultFolderURL.startAccessingSecurityScopedResource()
         defer { if accessed { vaultFolderURL.stopAccessingSecurityScopedResource() } }
 
         var count = 0
+        var usedPaths = Set<String>()
         for nb in notebooks {
+            // Folder names come from notebooks that may have been shared or synced: keep every
+            // part inside the vault.
             let subFolder = (nb.folderPath ?? "")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                .split(separator: "/").map(String.init)
+                .filter { $0 != "." && $0 != ".." }
+                .map(NotebookStore.safeFileName)
+                .joined(separator: "/")
             let targetDir = subFolder.isEmpty
                 ? vaultFolderURL
                 : vaultFolderURL.appendingPathComponent(subFolder, isDirectory: true)
             try FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
 
-            let body = nb.pages.flatMap(\.textBlocks)
-                .sorted { $0.y < $1.y }
-                .map(\.text)
-                .joined(separator: "\n\n")
-            let tags = MarkdownTextbookEngine.extractTags(from: body)
-            let iso = ISO8601DateFormatter().string(from: nb.modified)
-
-            var md = "---\n"
-            md += "title: \"\(nb.title.replacingOccurrences(of: "\"", with: "\\\""))\"\n"
-            if !subFolder.isEmpty { md += "folder: \"\(subFolder)\"\n" }
-            if let subject = nb.subject, !subject.isEmpty { md += "subject: \"\(subject)\"\n" }
-            if !tags.isEmpty { md += "tags: [\(tags.joined(separator: ", "))]\n" }
-            md += "updated: \(iso)\n"
-            md += "bellobook_id: \(nb.id.uuidString)\n"
-            md += "---\n\n"
-            md += "# \(nb.title)\n\n"
-            md += body.isEmpty ? "_Handwritten or blank logbook page._\n" : body + "\n"
-
-            let safeName = nb.title.replacingOccurrences(of: "/", with: "-")
+            // Two notebooks with the same title must not write over each other.
+            var safeName = NotebookStore.safeFileName(nb.title)
+            if !usedPaths.insert("\(subFolder)/\(safeName)".lowercased()).inserted {
+                safeName += " \(nb.id.uuidString.prefix(4))"
+            }
             let fileURL = targetDir.appendingPathComponent("\(safeName).md")
-            try md.write(to: fileURL, atomically: true, encoding: .utf8)
+            try markdown(for: nb).write(to: fileURL, atomically: true, encoding: .utf8)
             count += 1
         }
         return count

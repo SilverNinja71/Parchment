@@ -97,8 +97,28 @@ final class AudioDeck: NSObject, ObservableObject, AVAudioPlayerDelegate {
         showFloatingBar = false
     }
 
+    /// Takes a track off the deck (its attachment was deleted), stopping it if it is the one playing.
+    func remove(id: UUID) {
+        guard let index = queue.firstIndex(where: { $0.id == id }) else { return }
+        if currentIndex == index {
+            stopAndDismiss()
+            currentIndex = nil
+        } else if let current = currentIndex, current > index {
+            currentIndex = current - 1
+        }
+        queue.remove(at: index)
+    }
+
     private func loadAndPlay(at index: Int) {
         guard queue.indices.contains(index) else { return }
+        // Stop the track before this one first: if the new file can't be played, the old one
+        // must not carry on behind a bar that says "paused".
+        player?.stop()
+        player = nil
+        timer?.invalidate()
+        timer = nil
+        progress = 0
+        duration = 0
         currentIndex = index
         showFloatingBar = true
         let item = queue[index]
@@ -126,6 +146,8 @@ final class AudioDeck: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 guard let self, let player = self.player, player.duration > 0 else { return }
                 self.duration = player.duration
                 self.progress = player.currentTime / player.duration
+                // A phone call or another app can pause the player behind our back.
+                if self.isPlaying != player.isPlaying { self.isPlaying = player.isPlaying }
             }
         }
     }

@@ -349,7 +349,7 @@ struct WorkFollowerView: View {
                     Style.tap()
                     onApplyCorrection(result, correction)
                 } label: {
-                    Text(result.isSlip ? "Fix: \(correction)" : "Add = \(correction)")
+                    Text(result.isSlip ? "Fix: \(correction)" : correction.contains("=") ? "Add \(correction)" : "Add = \(correction)")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
@@ -472,7 +472,8 @@ struct WorkDetailPopover: View {
                     } label: {
                         HStack {
                             Image(systemName: "wand.and.stars")
-                            Text(selectedResult.isSlip ? "Apply Fix: \(correction)" : "Insert Answer: = \(correction)")
+                            Text(selectedResult.isSlip ? "Apply Fix: \(correction)"
+                                 : correction.contains("=") ? "Insert Answer: \(correction)" : "Insert Answer: = \(correction)")
                         }
                         .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)

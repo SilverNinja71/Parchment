@@ -285,6 +285,8 @@ final class StudyStore: ObservableObject {
 
     func restore(state: Data, drawings: [String: Data], merging: Bool) {
         guard let incoming = try? JSONDecoder().decode(Saved.self, from: state) else { return }
+        // In a merge, the cards whose incoming version was taken (nil: plain restore, take all).
+        var adopted: Set<UUID>? = merging ? [] : nil
         if merging {
             // Keep everything from both sides; the most recently reviewed version of a card wins.
             for deck in incoming.decks where !decks.contains(where: { $0.id == deck.id }) { decks.append(deck) }
@@ -292,9 +294,11 @@ final class StudyStore: ObservableObject {
                 if let index = cards.firstIndex(where: { $0.id == card.id }) {
                     if (card.schedule.lastReviewed ?? .distantPast) > (cards[index].schedule.lastReviewed ?? .distantPast) {
                         cards[index] = card
+                        adopted?.insert(card.id)
                     }
                 } else {
                     cards.append(card)
+                    adopted?.insert(card.id)
                 }
             }
             for (page, schedule) in incoming.pageSchedules
@@ -309,7 +313,10 @@ final class StudyStore: ObservableObject {
             reviewLog = incoming.reviewLog
         }
         for (name, data) in drawings {
-            try? data.write(to: cardsFolder.appendingPathComponent((name as NSString).lastPathComponent), options: .atomic)
+            // Drawing files are named "<card id>-front.drawing"; a card that stayed local keeps its own.
+            let file = (name as NSString).lastPathComponent
+            if let adopted, let id = UUID(uuidString: String(file.prefix(36))), !adopted.contains(id) { continue }
+            try? data.write(to: cardsFolder.appendingPathComponent(file), options: .atomic)
         }
         writeState()
     }

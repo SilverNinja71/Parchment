@@ -28,6 +28,7 @@ enum MathSolver {
         var text = raw
         // Anything after "=" is the (empty or old) answer.
         if let equals = text.firstIndex(of: "=") { text = String(text[..<equals]) }
+        text = removingGroupingCommas(text)
         let replacements: [(String, String)] = [
             ("×", "*"), ("✕", "*"), ("∗", "*"), ("·", "*"), ("÷", "/"), (":", "/"),
             ("−", "-"), ("–", "-"), ("—", "-"), ("√", "sqrt"), ("π", "pi"),
@@ -44,6 +45,14 @@ enum MathSolver {
             text = text.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
         }
         return text
+    }
+
+    /// Drops thousands separators ("1,000" → "1000") so they aren't read as decimal commas.
+    /// Where the comma is the decimal separator (most of Europe), commas are left alone.
+    static func removingGroupingCommas(_ text: String) -> String {
+        guard Locale.current.decimalSeparator != "," else { return text }
+        return text.replacingOccurrences(
+            of: "(?<=[0-9]),(?=[0-9]{3}(?![0-9]))", with: "", options: .regularExpression)
     }
 
     static func evaluate(_ expression: String) -> Double? {
@@ -72,7 +81,8 @@ enum MathSolver {
     }
 
     /// expression = term (+|- term)* ; term = power ((*|/|implicit) power)* ;
-    /// power = unary (^ power)? ; unary = -unary | postfix ; postfix = primary %?
+    /// power = -power | postfix (^ power)? ; postfix = primary %?
+    /// A leading minus applies to the whole power, so -3^2 is -(3^2) = -9.
     private struct Parser {
         let characters: [Character]
         var index = 0
@@ -111,7 +121,9 @@ enum MathSolver {
         }
 
         mutating func power() -> Double? {
-            guard let base = unary() else { return nil }
+            if current == "-" { index += 1; return power().map { -$0 } }
+            if current == "+" { index += 1; return power() }
+            guard let base = postfix() else { return nil }
             if current == "^" {
                 index += 1
                 guard let exponent = power() else { return nil }
@@ -120,9 +132,7 @@ enum MathSolver {
             return base
         }
 
-        mutating func unary() -> Double? {
-            if current == "-" { index += 1; return unary().map { -$0 } }
-            if current == "+" { index += 1; return unary() }
+        mutating func postfix() -> Double? {
             guard var value = primary() else { return nil }
             if current == "%" { index += 1; value /= 100 }
             return value

@@ -142,7 +142,7 @@ public struct WorkLineCluster: Equatable {
 
 // MARK: - Work Checker Engine
 
-/// On-device work follower and step-by-step checker for Parchment.
+/// On-device work follower and step-by-step checker for BelloBook.
 ///
 /// Tracks what the user writes across the entire page, clusters strokes into lines,
 /// verifies multi-step algebraic derivations, chained equalities, arithmetic, units,

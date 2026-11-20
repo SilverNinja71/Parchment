@@ -4,17 +4,17 @@ import CoreText
 
 // Shared with the Mac tool in Tools/KitGen: Foundation, CoreGraphics and CoreText only.
 
-/// What Parchment looks like before it's personalized, supplied by the platform
+/// What BelloBook looks like before it's personalized, supplied by the platform
 /// (UIKit in the app, AppKit in the Mac tool). The kit draws it faintly in every box
 /// so you can see what you're replacing, or trace over it.
 struct KitGhosts {
     /// The standard icon artwork (an SF Symbol), drawn black on transparent.
     var symbol: (_ name: String) -> CGImage?
-    /// The serif font Parchment uses for its name and notebook titles.
+    /// The serif font BelloBook uses for its name and notebook titles.
     var serifFont: (_ size: CGFloat, _ bold: Bool) -> CTFont
 }
 
-/// Draws the blank Parchment Personalization Kit as a PDF.
+/// Draws the blank BelloBook Personalization Kit as a PDF.
 enum KitPDFRenderer {
     private static let ink = CGColor(red: 0.20, green: 0.16, blue: 0.12, alpha: 1)
     private static let muted = CGColor(red: 0.45, green: 0.40, blue: 0.34, alpha: 1)
@@ -29,9 +29,9 @@ enum KitPDFRenderer {
         let data = NSMutableData()
         var mediaBox = CGRect(origin: .zero, size: KitLayout.pageSize)
         let info: [CFString: Any] = [
-            kCGPDFContextTitle: "Parchment Personalization Kit",
-            kCGPDFContextCreator: "Parchment",
-            kCGPDFContextSubject: "Draw in each box, then tap Apply in Parchment.",
+            kCGPDFContextTitle: "BelloBook Personalization Kit",
+            kCGPDFContextCreator: "BelloBook",
+            kCGPDFContextSubject: "Draw in each box, then tap Apply in BelloBook.",
             kCGPDFContextKeywords: KitLayout.keyword,
         ]
         guard let consumer = CGDataConsumer(data: data as CFMutableData),
@@ -75,7 +75,7 @@ enum KitPDFRenderer {
         context.strokePath()
         let footer = ghosts == nil
             ? "Draw inside the dashed boxes with your Apple Pencil. Ink outside a box is ignored. Tap Apply when you're done."
-            : "The faint drawings show Parchment's standard look — draw over them or ignore them. Ink outside a box is ignored."
+            : "The faint drawings show BelloBook's standard look — draw over them or ignore them. Ink outside a box is ignored."
         text(footer, at: CGPoint(x: margin, y: 774), font: "AvenirNext-Regular", size: 8.5, color: muted, in: context)
     }
 
@@ -126,10 +126,10 @@ enum KitPDFRenderer {
 
         switch slot.kind {
         case .wordmark:
-            // The library title: "Parchment" in bold serif.
+            // The library title: "BelloBook" in bold serif.
             let probe = ghosts.serifFont(100, true)
-            let size = min(rect.height * 0.5, rect.width * 0.8 / max(lineWidth("Parchment", font: probe) / 100, 0.01))
-            centered("Parchment", font: ghosts.serifFont(size, true), in: rect, baseline: rect.midY + size * 0.32, context: context)
+            let size = min(rect.height * 0.5, rect.width * 0.8 / max(lineWidth("BelloBook", font: probe) / 100, 0.01))
+            centered("BelloBook", font: ghosts.serifFont(size, true), in: rect, baseline: rect.midY + size * 0.32, context: context)
 
         case .logo:
             drawStandardLogo(in: rect.insetBy(dx: rect.width * 0.12, dy: rect.height * 0.12), context: context)

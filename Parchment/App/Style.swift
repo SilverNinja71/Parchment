@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Parchment's MyScript/Nebo-style design tokens, kept in one place.
+/// BelloBook's MyScript/Nebo-style design tokens, kept in one place.
 enum Style {
     /// Brand accent: MyScript active blue (selected tools, confirm buttons).
     static let accent = Color(hex: "0A60FF")

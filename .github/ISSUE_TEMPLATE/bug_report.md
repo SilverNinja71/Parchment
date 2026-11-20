@@ -18,4 +18,4 @@ labels: bug
 **Device**
 - iPad model:
 - iPadOS version:
-- How you run Parchment: (Xcode / Swift Playgrounds)
+- How you run BelloBook: (Xcode / Swift Playgrounds)

@@ -11,7 +11,7 @@ enum KitExtractor {
                   let data = store.loadDrawing(notebook: notebook.id, page: page.id),
                   let drawing = try? PKDrawing(data: data), !drawing.strokes.isEmpty else { continue }
 
-            // The kit PDF is scaled up to the page width inside Parchment.
+            // The kit PDF is scaled up to the page width inside BelloBook.
             let scale = page.width / KitLayout.pageSize.width
             for slot in KitLayout.slots where slot.page == kitPage {
                 let box = slot.rect.applying(CGAffineTransform(scaleX: scale, y: scale))
@@ -48,14 +48,14 @@ enum KitExtractor {
     /// Writes the blank kit to a temporary file so it can be shared or opened.
     static func blankKitFile() throws -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Parchment Personalization Kit.\(KitLayout.fileExtension)")
+            .appendingPathComponent("BelloBook Personalization Kit.\(KitLayout.fileExtension)")
         try KitPDFRenderer.makePDF(ghosts: .standard).write(to: url, options: .atomic)
         return url
     }
 }
 
 extension KitGhosts {
-    /// Parchment's standard look on iPad: SF Symbols and the system serif (New York).
+    /// BelloBook's standard look on iPad: SF Symbols and the system serif (New York).
     static var standard: KitGhosts {
         KitGhosts(
             symbol: { name in

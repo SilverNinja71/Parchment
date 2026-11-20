@@ -247,7 +247,7 @@ struct RemoteFolderBrowser: View {
                 Text(folder.displayPath)
             } footer: {
                 if notebookCount > 0 {
-                    Text("This folder already has \(notebookCount) Parchment notebook\(notebookCount == 1 ? "" : "s"). They'll be added to your library.")
+                    Text("This folder already has \(notebookCount) BelloBook notebook\(notebookCount == 1 ? "" : "s"). They'll be added to your library.")
                 }
             }
         }
@@ -259,7 +259,7 @@ struct RemoteFolderBrowser: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    newFolderName = "Parchment"
+                    newFolderName = "BelloBook"
                     creatingFolder = true
                 } label: { Label("New Folder", systemImage: "folder.badge.plus") }
             }

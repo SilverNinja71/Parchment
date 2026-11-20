@@ -56,12 +56,12 @@ enum KitLayout {
     static let pages: [(title: String, subtitle: String)] = [
         ("Your mark & toolbar", "Write the app's name, draw a little logo, then draw each toolbar icon."),
         ("Covers & doodles", "Design up to six notebook covers and a doodle for the empty library."),
-        ("Your handwriting · A to Z", "Parchment writes notebook titles with your letters. Sit capitals on the solid line."),
+        ("Your handwriting · A to Z", "BelloBook writes notebook titles with your letters. Sit capitals on the solid line."),
         ("Your handwriting · a to z, 0 to 9", "Lowercase letters reach the dashed middle line; tall ones reach the top line."),
         ("Study & subjects", "Icons for studying, your 1 to 5 rating buttons, and a doodle for finishing a session."),
     ]
 
-    /// Toolbar and app icons in kit order, with the SF Symbol Parchment shows by default.
+    /// Toolbar and app icons in kit order, with the SF Symbol BelloBook shows by default.
     /// IDs are referenced by the app's `ThemeIcon`.
     static let icons: [(id: String, label: String, symbol: String)] = [
         ("pen", "Pen", "pencil.tip"), ("highlighter", "Highlighter", "highlighter"), ("eraser", "Eraser", "eraser"),
@@ -106,7 +106,7 @@ enum KitLayout {
 
         // Page 0 – wordmark, logo and icons.
         let logoSize: CGFloat = 110
-        slots.append(KitSlot(id: "wordmark", label: "Write \"Parchment\" (or any name you like)", kind: .wordmark, page: 0,
+        slots.append(KitSlot(id: "wordmark", label: "Write \"BelloBook\" (or any name you like)", kind: .wordmark, page: 0,
                              rect: CGRect(x: margin, y: 150, width: contentWidth - logoSize - 16, height: logoSize)))
         slots.append(KitSlot(id: "logo", label: "Logo", kind: .logo, page: 0,
                              rect: CGRect(x: pageSize.width - margin - logoSize, y: 150, width: logoSize, height: logoSize)))

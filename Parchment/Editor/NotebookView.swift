@@ -192,7 +192,7 @@ struct NotebookView: View {
                 }
 
                 if let preview = editor.livePreview, editor.tool == .pen {
-                    // Live Text: what Parchment read from the line you're writing.
+                    // Live Text: what BelloBook read from the line you're writing.
                     HStack(spacing: 12) {
                         Image(systemName: "text.viewfinder").foregroundStyle(Style.selection)
                         Text(preview.text).lineLimit(1).font(.body)

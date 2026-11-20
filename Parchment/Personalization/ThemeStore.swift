@@ -52,7 +52,7 @@ final class ThemeStore: ObservableObject {
         return Double(covered) / Double(letters.count) >= 0.8
     }
 
-    /// Parchment's own logo in its standard colors, used until you draw your own.
+    /// BelloBook's own logo in its standard colors, used until you draw your own.
     static let standardLogo: UIImage = {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 3
@@ -79,7 +79,7 @@ final class ThemeStore: ObservableObject {
     }
 
     /// Replaces the theme with what was drawn on the kit. Empty boxes clear that item,
-    /// so the kit always reflects exactly what you see in Parchment.
+    /// so the kit always reflects exactly what you see in BelloBook.
     func apply(_ extracted: [String: UIImage]) {
         for slot in KitLayout.slots {
             let url = folder.appendingPathComponent(slot.fileName)

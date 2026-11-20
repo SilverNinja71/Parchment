@@ -12,7 +12,7 @@ final class AppSettings: ObservableObject {
     @Published var defaultPageKind: PageKind { didSet { defaults.set(defaultPageKind.rawValue, forKey: Keys.pageKind) } }
     @Published var defaultPaper: PaperStyle { didSet { defaults.set(defaultPaper.rawValue, forKey: Keys.paper) } }
     @Published var recognitionLanguage: String { didSet { defaults.set(recognitionLanguage, forKey: Keys.language) } }
-    /// Shows what Parchment reads from the line you're writing, ready to convert in one tap.
+    /// Shows what BelloBook reads from the line you're writing, ready to convert in one tap.
     @Published var liveTextPreview: Bool { didSet { defaults.set(liveTextPreview, forKey: Keys.liveText) } }
     /// Follows handwriting in real time and checks calculations and derivation steps.
     @Published var liveWorkChecker: Bool { didSet { defaults.set(liveWorkChecker, forKey: Keys.liveWorkChecker) } }

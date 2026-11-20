@@ -24,7 +24,7 @@ struct TutorialStep {
     let title: String
     let message: String
 
-    /// One step per page of the "Welcome to Parchment" notebook.
+    /// One step per page of the "Welcome to BelloBook" notebook.
     static let all = [
         TutorialStep(target: .pen, title: "Scratch-out to erase",
                      message: "Pick the Pen, then scribble back and forth over the words on this page. They disappear, no eraser needed."),

@@ -35,7 +35,7 @@ let package = Package(
     ],
     products: [
         .iOSApplication(
-            name: "Parchment",
+            name: "BelloBook",
             targets: ["AppModule"],
             bundleIdentifier: "com.example.parchment",
             teamIdentifier: "",

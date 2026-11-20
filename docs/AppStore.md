@@ -1,12 +1,12 @@
 # App Store listing (ready to paste)
 
-Everything App Store Connect asks for, written for Parchment. Character limits are Apple's.
+Everything App Store Connect asks for, written for BelloBook. Character limits are Apple's.
 
 ## App information
 
 | Field | Value |
 | --- | --- |
-| **Name** (30) | Parchment — Handwritten Notes *(backup if taken: "Parchment Notes")* |
+| **Name** (30) | BelloBook — Handwritten Notes *(backup if taken: "BelloBook Notes")* |
 | **Subtitle** (30) | Write, convert, study by hand |
 | **Category** | Productivity *(secondary: Education)* |
 | **Price** | Free |
@@ -14,11 +14,11 @@ Everything App Store Connect asks for, written for Parchment. Character limits a
 | **Privacy policy URL** | https://silverninja71.github.io/Parchment/privacy.html |
 | **Support URL** | https://github.com/SilverNinja71/Parchment/issues |
 | **Marketing URL** | https://silverninja71.github.io/Parchment/ |
-| **Copyright** | 2026 Parchment contributors |
+| **Copyright** | 2026 BelloBook contributors |
 
 ## App Privacy ("nutrition label")
 
-Choose **Data Not Collected**. Parchment has no analytics, ads or servers; sync goes straight from the iPad to the user's own cloud account.
+Choose **Data Not Collected**. BelloBook has no analytics, ads or servers; sync goes straight from the iPad to the user's own cloud account.
 
 ## Promotional text (170)
 
@@ -26,7 +26,7 @@ Handwriting notes that work for you: scratch out mistakes, turn ink into text, s
 
 ## Description (4000)
 
-Parchment is a free handwriting notes app for iPad and Apple Pencil, with no ads and no subscriptions.
+BelloBook is a free handwriting notes app for iPad and Apple Pencil, with no ads and no subscriptions.
 
 WRITE NATURALLY
 • Document pages that grow as you write, or an endless freeform canvas
@@ -42,18 +42,29 @@ INK THAT WORKS FOR YOU
 • Circle rough shapes to turn them into clean lines, circles, triangles and rectangles
 • Search inside your handwriting
 
+WORK THAT CHECKS ITSELF
+• BelloBook follows each line of a calculation or derivation and flags the step where it goes wrong
+• Catches arithmetic, sign and expansion slips, and offers the corrected line
+• Checks units, percentages and chained equalities, and accepts sensibly rounded answers
+
 STUDY WITH ACTIVE RECALL
 • Recall practice: memorize a page, hide it, rewrite it from memory, then compare side by side
 • Flashcards you write by hand, with spaced repetition
 • Rate yourself 1 to 5 and see each card again at just the right time
+• Export decks for Anki, or send them to Anki on your computer
+
+TEXTBOOK VIEW, MEDIA AND LINKS
+• See typed notes as a formatted page with Markdown, callouts and LaTeX math
+• Link notebooks with [[wiki-links]] and see what links back
+• Attach photos, audio, videos and documents to any page
 
 PDFs, COVERS AND SYNC
 • Import PDFs and write on them, then export as PDF
 • Beautiful covers: colors, finishes, a cover library, or your own photo
-• Sync to iCloud Drive, a WebDAV server, or other storage apps, and to several places at once
+• Sync to iCloud Drive, a WebDAV server, your own server, an Obsidian vault or other storage apps, and to several places at once
 
 MAKE IT YOURS
-• Draw your own icons, covers and alphabet in the Personalization Kit, and Parchment uses them everywhere
+• Draw your own icons, covers and alphabet in the Personalization Kit, and BelloBook uses them everywhere
 
 PRIVATE BY DESIGN
 • Handwriting recognition runs on your iPad
@@ -62,7 +73,7 @@ PRIVATE BY DESIGN
 
 ## Keywords (100, comma-separated, no spaces)
 
-handwriting,notes,notebook,pencil,study,flashcards,recall,pdf,annotate,math,convert,planner,journal
+handwriting,notes,notebook,pencil,study,flashcards,recall,pdf,annotate,math,convert,anki,latex
 
 ## Screenshots
 
@@ -80,7 +91,9 @@ Take them on an iPad (top button + volume up) or in the Xcode iPad simulator.
 
 ## Notes for the App Review team
 
-> Parchment is a free, offline handwriting notes app. No account is needed. On first launch it opens a "Welcome to Parchment" notebook with a guided tour. Handwriting conversion, math solving and search run on-device with Apple's Vision framework. Cloud sync is optional; iCloud Drive and WebDAV work without sign-in to our servers (we have none). There are no in-app purchases.
+> BelloBook is a free, offline handwriting notes app. No account is needed. On first launch it opens a "Welcome to BelloBook" notebook with a guided tour. Handwriting conversion, math solving and search run on-device with Apple's Vision framework. Cloud sync is optional; iCloud Drive and WebDAV work without sign-in to our servers (we have none). There are no in-app purchases.
+>
+> The app asks for local network access only if the user syncs with a server on their own network, or sends flashcards to Anki on their computer (the AnkiConnect add-on). Nothing on the local network is contacted otherwise.
 
 ## Before you submit (checklist)
 

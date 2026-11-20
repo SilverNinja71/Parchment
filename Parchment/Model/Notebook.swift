@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 
-/// The three page types Parchment supports, mirroring MyScript:
+/// The three page types BelloBook supports, mirroring MyScript:
 /// - `document`: fixed width, grows downward as you write (ruled paper by default)
 /// - `freeform`: an infinite canvas that grows in every direction you write
 /// - `pdf`: a page of an imported PDF that you annotate on top of
@@ -138,7 +138,7 @@ struct Notebook: Codable, Identifiable, Equatable {
     var customCover: Int?
     var pages: [Page]
     var hasPDF = false
-    /// True for the special notebook made from a Parchment Personalization Kit.
+    /// True for the special notebook made from a BelloBook Personalization Kit.
     var isPersonalizationKit = false
     /// The subject (Notability-style divider) this notebook is filed under.
     var subject: String?

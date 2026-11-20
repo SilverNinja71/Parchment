@@ -30,7 +30,7 @@ struct SettingsView: View {
                     NavigationLink {
                         PersonalizationSettingsView()
                     } label: {
-                        Label("Personalize Parchment", systemImage: "paintbrush.pointed")
+                        Label("Personalize BelloBook", systemImage: "paintbrush.pointed")
                     }
                 }
 
@@ -64,7 +64,7 @@ struct SettingsView: View {
                 } header: {
                     Text("About")
                 } footer: {
-                    Text("Parchment has no subscriptions, no ads and no paywalled features. Handwriting recognition runs entirely on your iPad.")
+                    Text("BelloBook has no subscriptions, no ads and no paywalled features. Handwriting recognition runs entirely on your iPad.")
                 }
             }
             .navigationTitle("Settings")
@@ -95,14 +95,14 @@ struct PersonalizationSettingsView: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Make every part of Parchment yours").font(.headline)
-                    Text("The Personalization Kit is a 5-page sheet of boxes. Draw your own app name, logo, toolbar icons, notebook covers and alphabet, tap Apply, and Parchment uses your drawings everywhere.")
+                    Text("Make every part of BelloBook yours").font(.headline)
+                    Text("The Personalization Kit is a 5-page sheet of boxes. Draw your own app name, logo, toolbar icons, notebook covers and alphabet, tap Apply, and BelloBook uses your drawings everywhere.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
 
                 if kitNotebook != nil {
-                    Text("Your kit is in the library — open the notebook with the Kit badge, draw, then tap Apply to Parchment.")
+                    Text("Your kit is in the library — open the notebook with the Kit badge, draw, then tap Apply to BelloBook.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Button(kitNotebook == nil ? "Start a Personalization Kit" : "Start a Fresh Kit") {
@@ -133,7 +133,7 @@ struct PersonalizationSettingsView: View {
                     Text(importMessage).font(.footnote).foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Export your finished kit pages as PNG, JPEG or PDF at full page size, with your drawing on top of the kit. Parchment works out which page each one is and keeps only your ink. Darker colors work best.")
+                Text("Export your finished kit pages as PNG, JPEG or PDF at full page size, with your drawing on top of the kit. BelloBook works out which page each one is and keeps only your ink. Darker colors work best.")
             }
 
             Section("Use My Drawings For") {

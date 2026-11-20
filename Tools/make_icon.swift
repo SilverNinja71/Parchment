@@ -3,7 +3,7 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
-// Draws Parchment's default app icon.  Usage: swift Tools/make_icon.swift <output.png>
+// Draws BelloBook's default app icon.  Usage: swift Tools/make_icon.swift <output.png>
 
 let size = 1024
 let output = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "AppIcon-1024.png")

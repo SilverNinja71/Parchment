@@ -29,7 +29,7 @@ struct NotebookArchive: Codable {
 
     static func decode(_ data: Data) throws -> NotebookArchive {
         let archive = try PropertyListDecoder().decode(NotebookArchive.self, from: data)
-        guard archive.magic == magic else { throw ParchmentError.invalidFile("This isn't a Parchment notebook.") }
+        guard archive.magic == magic else { throw ParchmentError.invalidFile("This isn't a BelloBook notebook.") }
         return archive
     }
 }

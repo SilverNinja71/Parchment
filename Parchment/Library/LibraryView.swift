@@ -156,9 +156,9 @@ struct LibraryView: View {
             if let wordmark = theme.wordmark {
                 Image(uiImage: wordmark).renderingMode(theme.keepInkColors ? .original : .template)
                     .resizable().scaledToFit().frame(height: 64)
-                    .accessibilityLabel("Parchment")
+                    .accessibilityLabel("BelloBook")
             } else {
-                Text("Parchment").font(.system(size: 40, weight: .bold, design: .serif))
+                Text("BelloBook").font(.system(size: 40, weight: .bold, design: .serif))
             }
             Spacer()
         }

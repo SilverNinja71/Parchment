@@ -37,7 +37,7 @@ enum FileOpener {
         if ext == "pdf" {
             return try store.importPDF(data: data, title: title)
         }
-        throw ParchmentError.invalidFile("Parchment can open PDFs, Parchment notebooks and Personalization Kits.")
+        throw ParchmentError.invalidFile("BelloBook can open PDFs, BelloBook notebooks and Personalization Kits.")
     }
 
     /// Kit PDFs carry a keyword so they're recognized even when renamed to .pdf.

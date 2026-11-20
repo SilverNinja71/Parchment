@@ -1,4 +1,4 @@
-// Parchment Web Studio & Live Work Follower Engine
+// BelloBook Web Studio & Live Work Follower Engine
 // 100% client-side, offline-first JavaScript port of Parchment/Editor/WorkChecker.swift
 // Adheres strictly to Parchment/App/Style.swift and CONTRIBUTING.md.
 

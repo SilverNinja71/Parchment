@@ -95,6 +95,8 @@ struct Page: Codable, Identifiable, Equatable {
     /// Index into the notebook's source PDF (pdf pages only).
     var pdfPageIndex: Int?
     var textBlocks: [TextBlock] = []
+    /// Rich media, audio, photo, and document attachments on this page (Amphi Notes/Cloud/Photos parity).
+    var attachments: [MediaAttachment]? = nil
 
     var size: CGSize {
         get { CGSize(width: width, height: height) }
@@ -146,8 +148,48 @@ struct Notebook: Codable, Identifiable, Equatable {
     var coverDesign: String?
     /// True when the cover is a photo/image the user imported (stored as cover.jpg).
     var hasCoverImage: Bool?
-    /// The built-in "Welcome to Parchment" tutorial notebook.
+    /// The built-in "Welcome to BelloBook" tutorial notebook.
     var isTutorial: Bool?
+    /// Nested folder path (e.g. "Ship's Log/Voyages" or "Physics/Lab 1") for folder-tree organization.
+    var folderPath: String? = nil
+}
+
+/// Kind of rich media or file attached to a BelloBook page or stored in the Media Vault.
+enum MediaKind: String, Codable, CaseIterable, Identifiable {
+    case image, audio, video, file
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .image: return "Photo"
+        case .audio: return "Audio"
+        case .video: return "Video"
+        case .file: return "File"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .image: return "photo"
+        case .audio: return "music.note"
+        case .video: return "film"
+        case .file: return "doc.text"
+        }
+    }
+}
+
+/// An attached photo, audio track, video, or document stored in a notebook's Media Vault.
+struct MediaAttachment: Codable, Identifiable, Equatable, Hashable {
+    var id = UUID()
+    var kind: MediaKind
+    var filename: String
+    var title: String
+    var artist: String = ""
+    var album: String = ""
+    var notes: String = ""
+    var mimeType: String = "application/octet-stream"
+    var byteCount: Int = 0
+    var createdAt: Date = Date()
 }
 
 /// A subject groups notebooks (e.g. "Biology") and is what you pick to study.

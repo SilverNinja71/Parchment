@@ -8,6 +8,7 @@ struct NotebookView: View {
     @ObservedObject private var settings = AppSettings.shared
     @StateObject private var editor: EditorModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var currentPageID: UUID?
     @State private var showPages = true
@@ -19,6 +20,8 @@ struct NotebookView: View {
     @State private var practicing = false
     @State private var customizingCover = false
     @State private var choosingPaper = false
+    @State private var showMediaVault = false
+    @State private var showTextbookPreview = false
     @AppStorage("hasCompletedTutorial") private var tutorialDone = false
 
     /// A page to open to (set by search before navigating here).
@@ -68,10 +71,19 @@ struct NotebookView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .onAppear {
+            SyncEngine.shared.notebookInUse = notebookID
             if let page = Self.pendingPages.removeValue(forKey: notebookID) { currentPageID = page }
             if currentPageID == nil { currentPageID = notebook?.pages.first?.id }
         }
-        .onDisappear { editor.canvas?.saveNow() }
+        .onDisappear {
+            editor.canvas?.saveNow()
+            SyncEngine.shared.notebookInUse = nil
+            SyncEngine.shared.syncIfAutomatic()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Never lose the last strokes if the iPad sleeps or the app is closed.
+            if phase != .active { editor.canvas?.saveNow() }
+        }
         .sheet(item: $editor.conversion) { request in
             ConvertSheet(request: request, onConvert: { editor.applyConversion($0) },
                          onAddAnswer: { editor.addMathAnswer($0) })
@@ -97,6 +109,20 @@ struct NotebookView: View {
         }
         .sheet(isPresented: $customizingCover) {
             CoverStudioSheet(notebookID: notebookID)
+        }
+        .sheet(isPresented: $showMediaVault) {
+            if let page = currentPage {
+                MediaVaultSheet(notebookID: notebookID, pageID: page.id)
+            }
+        }
+        .sheet(isPresented: $showTextbookPreview) {
+            if let notebook {
+                TextbookPreviewSheet(notebook: notebook) { linkedTitle in
+                    if let target = store.notebooks.first(where: { $0.title.caseInsensitiveCompare(linkedTitle) == .orderedSame }) {
+                        currentPageID = target.pages.first?.id
+                    }
+                }
+            }
         }
         .sheet(isPresented: $choosingPaper) {
             if let page = currentPage {
@@ -149,26 +175,40 @@ struct NotebookView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if let preview = editor.livePreview, editor.tool == .pen {
-                // Live Text: what Parchment read from the line you're writing.
-                HStack(spacing: 12) {
-                    Image(systemName: "text.viewfinder").foregroundStyle(Style.selection)
-                    Text(preview.text).lineLimit(1).font(.body)
-                    Button("Convert") { editor.convertLivePreview() }
-                        .buttonStyle(.borderedProminent)
-                        .font(.subheadline.bold())
-                    Button { editor.livePreview = nil } label: { Image(systemName: "xmark").font(.caption.bold()) }
-                        .accessibilityLabel("Dismiss")
+            VStack(spacing: 10) {
+                AudioDeckMiniBar()
+
+                if settings.liveWorkChecker {
+                    WorkFollowerView(editor: editor) { result, correction in
+                        editor.applyWorkCheckCorrection(result, correction: correction)
+                    }
                 }
-                .padding(.leading, 18).padding(.trailing, 12).padding(.vertical, 8)
-                .frame(maxWidth: 560)
-                .background(.regularMaterial, in: Capsule())
-                .ambientShadow()
-                .padding(.bottom, message == nil ? 30 : 90)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                if let preview = editor.livePreview, editor.tool == .pen {
+                    // Live Text: what Parchment read from the line you're writing.
+                    HStack(spacing: 12) {
+                        Image(systemName: "text.viewfinder").foregroundStyle(Style.selection)
+                        Text(preview.text).lineLimit(1).font(.body)
+                        Button("Convert") { editor.convertLivePreview() }
+                            .buttonStyle(.borderedProminent)
+                            .font(.subheadline.bold())
+                        Button { editor.livePreview = nil } label: { Image(systemName: "xmark").font(.caption.bold()) }
+                            .accessibilityLabel("Dismiss")
+                    }
+                    .padding(.leading, 18).padding(.trailing, 12).padding(.vertical, 8)
+                    .frame(maxWidth: 560)
+                    .background(.regularMaterial, in: Capsule())
+                    .ambientShadow()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .padding(.bottom, message == nil ? 30 : 90)
         }
         .animation(Style.spring, value: editor.livePreview)
+        .animation(Style.spring, value: editor.workCheckResult)
+        .onChange(of: settings.liveWorkChecker) { _, _ in
+            editor.canvas?.scheduleWorkCheck()
+        }
         .onChange(of: editor.notice) { _, notice in
             if let notice {
                 show(notice)
@@ -206,7 +246,18 @@ struct NotebookView: View {
             }
             .accessibilityLabel("Pages")
 
-            Spacer()
+            // Title takes the space between the buttons, so it can't run into them on a narrow screen.
+            Button {
+                newTitle = notebook.title
+                renaming = true
+            } label: {
+                HandwrittenText(notebook.title, size: 20)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+            }
+            .accessibilityHint("Rename notebook")
 
             Button {
                 editor.canvas?.saveNow()
@@ -217,6 +268,16 @@ struct NotebookView: View {
             }
             .buttonStyle(.bordered)
             .accessibilityHint("Study this notebook with active recall")
+
+            Button { showTextbookPreview = true } label: {
+                Image(systemName: "book.pages").font(.system(size: 18)).frame(width: 44, height: 40)
+            }
+            .accessibilityLabel("Textbook & LaTeX View")
+
+            Button { showMediaVault = true } label: {
+                Image(systemName: "tray.full").font(.system(size: 18)).frame(width: 44, height: 40)
+            }
+            .accessibilityLabel("Media & File Vault")
 
             Button { customizingCover = true } label: {
                 Image(systemName: "paintpalette").font(.system(size: 19)).frame(width: 44, height: 40)
@@ -242,10 +303,14 @@ struct NotebookView: View {
             Menu {
                 Button { share(notebook, asPDF: false) } label: { ThemedLabel("Share Notebook", icon: .share) }
                 Button { share(notebook, asPDF: true) } label: { Label("Export as PDF", systemImage: "doc.richtext") }
+                Button { shareMarkdown(notebook) } label: { Label("Export as Markdown (.md)", systemImage: "doc.plaintext") }
+                Button { showTextbookPreview = true } label: { Label("Textbook & LaTeX Preview…", systemImage: "book.pages") }
+                Button { showMediaVault = true } label: { Label("Media, Audio & Files…", systemImage: "tray.full") }
                 if let page = currentPage, page.kind != .pdf {
                     Button { choosingPaper = true } label: { Label("Paper Style…", systemImage: "square.grid.3x3") }
                 }
-                Button { customizingCover = true } label: { Label("Customize Cover…", systemImage: "paintpalette") }
+
+            Button { customizingCover = true } label: { Label("Customize Cover…", systemImage: "paintpalette") }
                 Toggle("Draw with Finger", isOn: $settings.fingerDraws)
                 Divider()
                 Button {
@@ -267,18 +332,6 @@ struct NotebookView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .overlay {
-            // Title centered like Notability and MyScript.
-            Button {
-                newTitle = notebook.title
-                renaming = true
-            } label: {
-                HandwrittenText(notebook.title, size: 20)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: 360)
-            }
-            .accessibilityHint("Rename notebook")
-        }
         .background(.bar)
     }
 
@@ -288,7 +341,7 @@ struct NotebookView: View {
             Text("Draw in each box with your Apple Pencil, then apply. You can come back and change it any time.")
                 .font(.subheadline)
             Spacer()
-            Button("Apply to Parchment") { applyKit(notebook) }
+            Button("Apply to BelloBook") { applyKit(notebook) }
                 .buttonStyle(.borderedProminent)
         }
         .padding(.horizontal, 16)
@@ -322,13 +375,22 @@ struct NotebookView: View {
         }
     }
 
+    private func shareMarkdown(_ notebook: Notebook) {
+        editor.canvas?.saveNow()
+        do {
+            shareItem = ShareItem(url: try MediaVault.shared.exportMarkdown(notebook: notebook))
+        } catch {
+            show(error.localizedDescription)
+        }
+    }
+
     private func applyKit(_ notebook: Notebook) {
         editor.canvas?.saveNow()
         let extracted = KitExtractor.extract(from: notebook, store: store)
         ThemeStore.shared.apply(extracted)
         show(extracted.isEmpty
              ? "Nothing drawn yet — draw inside the boxes first."
-             : "Applied \(extracted.count) drawings. Parchment is now yours ✨")
+             : "Applied \(extracted.count) drawings. BelloBook is now yours ✨")
     }
 
     private func show(_ text: String) {

@@ -2,15 +2,17 @@ import Foundation
 import SwiftUI
 import AuthenticationServices
 
-/// Every place Parchment can sync to.
+/// Every place BelloBook can sync to.
 enum CloudService: String, CaseIterable, Identifiable, Codable {
-    case iCloudDrive, oneDrive, googleDrive, dropbox, webDAV, otherApp
+    case iCloudDrive, obsidianVault, amphiServer, oneDrive, googleDrive, dropbox, webDAV, otherApp
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .iCloudDrive: return "iCloud Drive"
+        case .obsidianVault: return "Obsidian Vault"
+        case .amphiServer: return "BelloBook / Amphi Server"
         case .oneDrive: return "OneDrive"
         case .googleDrive: return "Google Drive"
         case .dropbox: return "Dropbox"
@@ -21,7 +23,9 @@ enum CloudService: String, CaseIterable, Identifiable, Codable {
 
     var subtitle: String {
         switch self {
-        case .iCloudDrive: return "Uses the Apple Account on this iPad"
+        case .iCloudDrive: return "Recommended. Uses the Apple Account on this iPad"
+        case .obsidianVault: return "Sync Markdown, [[Wiki-Links]], callouts & LaTeX with an Obsidian vault"
+        case .amphiServer: return "One self-hosted server syncs notes, media, audio & photos"
         case .oneDrive: return "Sign in with your Microsoft account"
         case .googleDrive: return "Sign in with your Google account"
         case .dropbox: return "Sign in with your Dropbox account"
@@ -33,6 +37,8 @@ enum CloudService: String, CaseIterable, Identifiable, Codable {
     var systemImage: String {
         switch self {
         case .iCloudDrive: return "icloud"
+        case .obsidianVault: return "link.circle.fill"
+        case .amphiServer: return "bolt.horizontal.icloud"
         case .oneDrive: return "cloud"
         case .googleDrive: return "triangle"
         case .dropbox: return "shippingbox"
@@ -44,6 +50,8 @@ enum CloudService: String, CaseIterable, Identifiable, Codable {
     var tint: Color {
         switch self {
         case .iCloudDrive: return Color(red: 0.20, green: 0.55, blue: 0.95)
+        case .obsidianVault: return Color(red: 0.42, green: 0.31, blue: 0.90)
+        case .amphiServer: return Style.accent
         case .oneDrive: return Color(red: 0.00, green: 0.47, blue: 0.83)
         case .googleDrive: return Color(red: 0.13, green: 0.59, blue: 0.33)
         case .dropbox: return Color(red: 0.00, green: 0.38, blue: 1.00)
@@ -56,9 +64,9 @@ enum CloudService: String, CaseIterable, Identifiable, Codable {
 
     var signInStyle: SignInStyle {
         switch self {
-        case .iCloudDrive, .otherApp: return .folderPicker
+        case .iCloudDrive, .obsidianVault, .otherApp: return .folderPicker
         case .oneDrive, .googleDrive, .dropbox: return .oauth
-        case .webDAV: return .webDAVForm
+        case .webDAV, .amphiServer: return .webDAVForm
         }
     }
 }

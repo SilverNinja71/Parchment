@@ -62,8 +62,8 @@ struct TutorialOverlay: View {
 
                     card
                         .frame(width: 320)
-                        .position(x: min(max(rect.midX, 176), proxy.size.width - 176),
-                                  y: rect.maxY + 96)
+                        // Near the bottom, so it never covers the page you're practicing on.
+                        .position(x: proxy.size.width / 2, y: proxy.size.height - 110)
                 }
             }
         }

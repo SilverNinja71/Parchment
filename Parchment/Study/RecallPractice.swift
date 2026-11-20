@@ -169,6 +169,7 @@ struct RecallSessionView: View {
     @State private var rating: RecallRating?
     @State private var ratings: [RecallRating] = []
     @State private var pdfs: [UUID: CGPDFDocument] = [:]
+    @State private var recallSummary: RecallVerificationSummary?
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -278,9 +279,16 @@ struct RecallSessionView: View {
     }
 
     private var compareView: some View {
-        HStack(spacing: 20) {
-            comparisonColumn("Original", image: original)
-            comparisonColumn("Your rewrite", image: attemptImage)
+        VStack(spacing: 14) {
+            if let summary = recallSummary {
+                RecallWorkSummaryCard(summary: summary) { suggested in
+                    rating = RecallRating(rawValue: suggested)
+                }
+            }
+            HStack(spacing: 20) {
+                comparisonColumn("Original", image: original)
+                comparisonColumn("Your rewrite", image: attemptImage)
+            }
         }
     }
 
@@ -323,6 +331,7 @@ struct RecallSessionView: View {
             case .recall:
                 Button {
                     withAnimation(.easeInOut(duration: 0.3)) { phase = .compare }
+                    evaluateRecallAttempt()
                 } label: {
                     Label { Text("Done — Compare") } icon: { ThemedIcon(.done, size: 22) }
                         .font(.title3.bold()).frame(maxWidth: 420).padding(.vertical, 6)
@@ -363,8 +372,33 @@ struct RecallSessionView: View {
         original = PageRenderer.image(of: page, in: item.notebookID, store: store, pdf: pdfs[item.notebookID], width: 900)
         attempt = PKDrawing()
         rating = nil
+        recallSummary = nil
         remaining = seconds
         phase = .memorize
+    }
+
+    private func evaluateRecallAttempt() {
+        guard let item, let page else { return }
+        let attemptDrawing = attempt
+        let origBlocksText = page.textBlocks.map(\.text).joined(separator: "\n")
+        let origDrawing = store.loadDrawing(notebook: item.notebookID, page: page.id).flatMap { try? PKDrawing(data: $0) }
+        let language = AppSettings.shared.recognitionLanguage
+
+        Task { @MainActor in
+            var origFull = origBlocksText
+            if let origDrawing, !origDrawing.strokes.isEmpty {
+                let rec = (try? await HandwritingRecognizer.recognize(origDrawing, language: language)) ?? ""
+                if !rec.isEmpty {
+                    origFull = origFull.isEmpty ? rec : origFull + "\n" + rec
+                }
+            }
+            let attemptRec = attemptDrawing.strokes.isEmpty
+                ? ""
+                : ((try? await HandwritingRecognizer.recognize(attemptDrawing, language: language)) ?? "")
+            withAnimation(Style.spring) {
+                recallSummary = WorkChecker.compareRecall(originalText: origFull, attemptText: attemptRec)
+            }
+        }
     }
 
     private func next() {

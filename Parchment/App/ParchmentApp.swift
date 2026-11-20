@@ -18,6 +18,7 @@ struct ParchmentApp: App {
 
 enum SidebarItem: Hashable {
     case allNotes
+    case folder(String)
     case subject(String)
     case flashcards
     case recall
@@ -49,7 +50,7 @@ struct RootView: View {
             }
         }
         .tint(Color.accentColor)
-        .onChange(of: path) { _, path in
+        .onChange(of: path, initial: true) { _, path in
             withAnimation { columns = path.isEmpty ? .all : .detailOnly }
         }
         .onChange(of: selection) { _, _ in path = [] }
@@ -90,6 +91,8 @@ struct RootView: View {
         switch selection ?? .allNotes {
         case .allNotes:
             LibraryView(path: $path)
+        case .folder(let folder):
+            LibraryView(path: $path, folderPath: folder).id("folder:" + folder)
         case .subject(let name):
             LibraryView(path: $path, subject: name).id(name)
         case .flashcards:
@@ -105,7 +108,9 @@ struct SidebarView: View {
     @Binding var showSettings: Bool
     @EnvironmentObject private var store: NotebookStore
     @EnvironmentObject private var study: StudyStore
+    @EnvironmentObject private var sync: SyncEngine
     @ObservedObject private var theme = ThemeStore.shared
+    @State private var showAccount = false
     @State private var addingSubject = false
     @State private var newSubject = ""
     @State private var deleting: Subject?
@@ -116,6 +121,18 @@ struct SidebarView: View {
                 Label { Text("All Notes") } icon: { ThemedIcon(.allNotes, size: 20) }
                     .badge(store.notebooks.count)
                     .tag(SidebarItem.allNotes)
+            }
+
+            Section("Folders") {
+                ForEach(uniqueFolders, id: \.self) { folder in
+                    Label {
+                        Text(folder)
+                    } icon: {
+                        Image(systemName: "folder").foregroundStyle(Style.accent)
+                    }
+                    .badge(store.notebooks.filter { ($0.folderPath ?? "") == folder || ($0.folderPath ?? "").hasPrefix(folder + "/") }.count)
+                    .tag(SidebarItem.folder(folder))
+                }
             }
 
             Section("Subjects") {
@@ -148,18 +165,41 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationTitle("Parchment")
+        .navigationTitle("BelloBook")
         .safeAreaInset(edge: .bottom) {
-            HStack {
-                Button { showSettings = true } label: {
-                    Label { Text("Settings") } icon: { ThemedIcon(.settings, size: 20) }
+            VStack(alignment: .leading, spacing: 10) {
+                if sync.connections.isEmpty {
+                    Button { showAccount = true } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.icloud").font(.title3).foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Not backed up").font(.subheadline.bold()).foregroundStyle(.primary)
+                                Text("Sign in to keep your work safe").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(10)
+                        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: Style.controlRadius))
+                    }
+                    .buttonStyle(.plain)
                 }
-                Spacer()
-                SyncStatusButton { showSettings = true }
+                HStack {
+                    Button { showSettings = true } label: {
+                        Label { Text("Settings") } icon: { ThemedIcon(.settings, size: 20) }
+                    }
+                    Spacer()
+                    SyncStatusButton { showAccount = true }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .background(.bar)
+        }
+        .sheet(isPresented: $showAccount) {
+            NavigationStack {
+                SyncSettingsView()
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showAccount = false } } }
+            }
         }
         .alert("New Subject", isPresented: $addingSubject) {
             TextField("e.g. Biology", text: $newSubject)
@@ -181,6 +221,11 @@ struct SidebarView: View {
         } message: {
             Text("Its notebooks stay in All Notes.")
         }
+    }
+
+    private var uniqueFolders: [String] {
+        let paths = store.notebooks.compactMap(\.folderPath).filter { !$0.isEmpty }
+        return Array(Set(paths)).sorted()
     }
 
     private var dueCards: Int {

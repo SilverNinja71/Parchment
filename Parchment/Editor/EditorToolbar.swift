@@ -3,9 +3,22 @@ import SwiftUI
 /// The tool palette under the top bar: tools, colors, sizes and the ruler.
 struct EditorToolbar: View {
     @ObservedObject var editor: EditorModel
+    @ObservedObject private var settings = AppSettings.shared
     @State private var showOptions = false
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            palette
+            ScrollView(.horizontal, showsIndicators: false) { palette }
+        }
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        .padding(.horizontal, 12)
+    }
+
+    private var palette: some View {
         HStack(spacing: 6) {
             ForEach(EditorTool.allCases) { tool in
                 toolButton(tool)
@@ -26,12 +39,23 @@ struct EditorToolbar: View {
             }
             .accessibilityLabel("Ruler")
 
+            Button {
+                Style.tap()
+                withAnimation(Style.spring) {
+                    settings.liveWorkChecker.toggle()
+                }
+            } label: {
+                Image(systemName: settings.liveWorkChecker ? "checkmark.seal.fill" : "checkmark.seal")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(settings.liveWorkChecker ? Style.selection : .secondary)
+                    .frame(width: 40, height: 36)
+                    .background(settings.liveWorkChecker ? Style.selection.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            }
+            .accessibilityLabel("Check Work As You Write")
+
+
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
     }
 
     private func toolButton(_ tool: EditorTool) -> some View {

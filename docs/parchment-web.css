@@ -1,0 +1,1200 @@
+/* Parchment Web & Live Work Checker — MyScript / Style.swift Design Tokens */
+:root {
+  --accent: #0A60FF;
+  --selection: #007AFF;
+  --paper: #FBF9F5;
+  --paper-line: rgba(90, 115, 150, 0.28);
+  --paper-line-faint: rgba(90, 115, 150, 0.16);
+  --chrome: #F2F3F7;
+  --surface: rgba(255, 255, 255, 0.88);
+  --hairline: #E2E4EB;
+  --ink: #1F2430;
+  --muted: #5B6272;
+  --verified: #2E9452;
+  --verified-bg: rgba(46, 148, 82, 0.12);
+  --verified-border: rgba(46, 148, 82, 0.34);
+  --slip: #D14724;
+  --slip-bg: rgba(209, 71, 36, 0.13);
+  --slip-border: rgba(209, 71, 36, 0.38);
+  --terracotta: #8B4A2E;
+  --card-radius: 12px;
+  --sheet-radius: 20px;
+  --control-radius: 10px;
+  --spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --ambient-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+  --toolbar-shadow: 0 4px 14px rgba(0, 0, 0, 0.13);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--chrome);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* App Shell */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Top Navigation Bar */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 54px;
+  padding: 0 16px;
+  background: var(--surface);
+  backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--hairline);
+  z-index: 30;
+}
+
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.parchment-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(139, 74, 46, 0.25);
+}
+
+.brand-title {
+  font-family: "New York", Georgia, serif;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.notebook-crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: var(--control-radius);
+  background: rgba(10, 96, 255, 0.07);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: var(--control-radius);
+  border: 1px solid var(--hairline);
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s var(--spring), background 0.2s, border-color 0.2s;
+}
+
+.btn:hover {
+  background: #F7F8FB;
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.btn-primary:hover {
+  background: #0051DE;
+}
+
+.btn-pill-active {
+  background: rgba(10, 96, 255, 0.12);
+  color: var(--accent);
+  border-color: rgba(10, 96, 255, 0.3);
+}
+
+/* Main Workspace Layout */
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* Left Sidebar: Notebooks & Presets */
+.sidebar {
+  width: 248px;
+  background: var(--chrome);
+  border-right: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 14px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.sidebar-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 4px 6px;
+}
+
+.notebook-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notebook-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--card-radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.22s var(--spring);
+}
+
+.notebook-item:hover {
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.notebook-item.active {
+  background: #fff;
+  border-color: rgba(10, 96, 255, 0.28);
+  box-shadow: var(--ambient-shadow);
+}
+
+.notebook-mini-cover {
+  width: 24px;
+  height: 32px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  position: relative;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.notebook-mini-cover::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 4px 0 0 4px;
+}
+
+.notebook-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.notebook-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notebook-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Paper Style Quick Switcher in Sidebar */
+.paper-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.paper-chip {
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  background: var(--paper);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s var(--spring);
+}
+
+.paper-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(10, 96, 255, 0.14);
+}
+
+/* Center Canvas Stage */
+.canvas-stage {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  padding: 76px 24px 120px;
+  background: #E8EAEF;
+}
+
+/* Floating MyScript Toolbar */
+.editor-toolbar {
+  position: fixed;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(20px);
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: var(--toolbar-shadow);
+  z-index: 25;
+}
+
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s var(--spring);
+}
+
+.tool-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.tool-btn.active {
+  background: rgba(0, 122, 255, 0.15);
+  color: var(--selection);
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--hairline);
+  margin: 0 4px;
+}
+
+.color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.18s var(--spring);
+}
+
+.color-swatch.active {
+  transform: scale(1.2);
+  border-color: var(--selection);
+}
+
+/* The Warm Off-White Paper Sheet */
+.paper-sheet {
+  width: min(860px, 96%);
+  min-height: 920px;
+  background-color: var(--paper);
+  border-radius: var(--card-radius);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.10), 0 1px 3px rgba(0, 0, 0, 0.06);
+  position: relative;
+  overflow: hidden;
+  padding-top: 68px;
+  padding-bottom: 80px;
+}
+
+/* Paper Background Patterns matching PaperViews.swift */
+.paper-sheet.paper-ruled {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 43px,
+    var(--paper-line) 43px,
+    var(--paper-line) 44px
+  );
+  background-position: 0 68px;
+}
+
+.paper-sheet.paper-dottedLined {
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 43px,
+      var(--paper-line) 43px,
+      var(--paper-line) 44px
+    ),
+    repeating-linear-gradient(
+      to right,
+      var(--paper-line-faint) 0px,
+      var(--paper-line-faint) 4px,
+      transparent 4px,
+      transparent 9px
+    );
+  background-size: 100% 44px, 9px 22px;
+  background-position: 0 68px, 0 90px;
+}
+
+.paper-sheet.paper-grid {
+  background-image:
+    linear-gradient(to right, var(--paper-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--paper-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  background-position: 0 68px;
+}
+
+.paper-sheet.paper-dotted {
+  background-image: radial-gradient(circle, rgba(90, 115, 150, 0.42) 1.4px, transparent 1.5px);
+  background-size: 28px 28px;
+  background-position: 14px 68px;
+}
+
+.paper-sheet.paper-blank {
+  background-image: none;
+}
+
+/* Red/Slate Left Margin Rule on Paper */
+.paper-margin-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 58px;
+  width: 1px;
+  background: rgba(209, 71, 36, 0.22);
+  pointer-events: none;
+}
+
+/* Page Header inside Paper */
+.page-header {
+  padding: 0 36px 14px 72px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(90, 115, 150, 0.18);
+  margin-bottom: 2px;
+}
+
+.page-title-input {
+  font-family: "New York", Georgia, serif;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ink);
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 65%;
+}
+
+.page-status-summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Freehand Ink Canvas Layer */
+.ink-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 8;
+  touch-action: none;
+}
+
+.ink-canvas.passthrough {
+  pointer-events: none;
+}
+
+/* Live Pen Follower Cursor Dot on Canvas */
+.pen-follower-dot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(10, 96, 255, 0.25);
+  border: 2px solid var(--accent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 20;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.pen-follower-dot.visible {
+  opacity: 1;
+}
+
+/* Interactive Work Lines Layer */
+.work-lines-container {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+}
+
+.work-line-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 24px 0 72px;
+  transition: background 0.18s;
+}
+
+/* Left Margin Active Follower Bracket (Style.accent) */
+.line-follower-bar {
+  position: absolute;
+  left: 46px;
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+  border-radius: 3px;
+  background: transparent;
+  transition: all 0.22s var(--spring);
+}
+
+.work-line-row.focused .line-follower-bar {
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(10, 96, 255, 0.45);
+}
+
+.work-line-row.is-slip .line-follower-bar {
+  background: var(--slip);
+}
+
+.work-line-row.is-verified .line-follower-bar {
+  background: var(--verified);
+}
+
+.line-number-tag {
+  position: absolute;
+  left: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(91, 98, 114, 0.55);
+  font-variant-numeric: tabular-nums;
+  width: 24px;
+  text-align: right;
+}
+
+/* Editable Handwritten-Style Work Input */
+.work-line-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-family: "SF Mono", "Menlo", "Bradley Hand", "Segoe Print", monospace;
+  font-size: 18px;
+  line-height: 42px;
+  color: var(--ink);
+  padding: 0 12px 0 0;
+  user-select: text;
+}
+
+.work-line-input::placeholder {
+  color: rgba(91, 98, 114, 0.35);
+  font-style: italic;
+}
+
+/* Dashed Terracotta Underline for Lines with Slips */
+.work-line-row.is-slip .work-line-input {
+  text-decoration: underline dashed var(--slip);
+  text-underline-offset: 6px;
+  text-decoration-thickness: 2px;
+}
+
+/* Inline Right-Margin Work Verification Badge */
+.margin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.25s var(--spring);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+.margin-badge:hover {
+  transform: translateY(-1px);
+}
+
+.margin-badge.badge-verified {
+  background: var(--verified-bg);
+  color: var(--verified);
+  border: 1px solid var(--verified-border);
+}
+
+.margin-badge.badge-slip {
+  background: var(--slip-bg);
+  color: var(--slip);
+  border: 1px solid var(--slip-border);
+}
+
+.margin-badge.badge-evaluated {
+  background: rgba(10, 96, 255, 0.11);
+  color: var(--accent);
+  border: 1px solid rgba(10, 96, 255, 0.30);
+}
+
+.badge-fix-btn {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: none;
+  background: var(--slip);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 3px;
+}
+
+.badge-add-btn {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 3px;
+}
+
+/* Floating Bottom Work Follower Pill (WorkFollowerView.swift parity) */
+.floating-follower-dock {
+  position: fixed;
+  bottom: 24px;
+  left: calc(50% + 124px);
+  transform: translateX(-50%);
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 640px;
+  width: 92%;
+  pointer-events: none;
+}
+
+.follower-pill {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px);
+  border-radius: var(--card-radius);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  box-shadow: var(--toolbar-shadow);
+  transition: all 0.3s var(--spring);
+}
+
+.follower-pill.pill-slip {
+  border-color: var(--slip-border);
+}
+
+.follower-pill.pill-verified {
+  border-color: var(--verified-border);
+}
+
+.pill-category-tag {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+
+.pill-message {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.pill-action-btn {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.pill-action-btn:active {
+  transform: scale(0.95);
+}
+
+/* Step Log Inspector Popover Card */
+.step-inspector-popover {
+  pointer-events: auto;
+  width: 390px;
+  background: #fff;
+  border-radius: var(--sheet-radius);
+  border: 1px solid var(--hairline);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16);
+  padding: 18px;
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.step-inspector-popover.open {
+  display: flex;
+}
+
+.step-log-list {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.step-log-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  font-size: 12px;
+}
+
+/* Modals (Two-Pane New Notebook Studio & Active Recall Practice) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 20px;
+}
+
+.modal-backdrop.open {
+  display: flex;
+}
+
+.wide-sheet {
+  width: min(880px, 96vw);
+  max-height: 88vh;
+  background: var(--chrome);
+  border-radius: var(--sheet-radius);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: #fff;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.two-pane-body {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 20px;
+  padding: 22px;
+  overflow-y: auto;
+}
+
+.pane-card {
+  background: #fff;
+  border-radius: var(--card-radius);
+  padding: 16px;
+  border: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 3D Interactive Notebook Cover Preview */
+.cover-3d-stage {
+  perspective: 900px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 0;
+}
+
+.cover-3d-book {
+  width: 180px;
+  height: 240px;
+  border-radius: 8px 16px 16px 8px;
+  position: relative;
+  transform: rotateY(-14deg) rotateX(6deg);
+  transition: transform 0.35s var(--spring), background 0.3s;
+  box-shadow: -8px 12px 28px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 22px 18px 18px 26px;
+  color: #fff;
+  cursor: grab;
+  overflow: hidden;
+}
+
+.cover-3d-book:hover {
+  transform: rotateY(-4deg) rotateX(2deg) scale(1.03);
+}
+
+.cover-spine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+/* Recall Practice Summary Card */
+.recall-summary-card {
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--card-radius);
+  padding: 14px 16px;
+  box-shadow: var(--ambient-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.term-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.term-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+
+
+/* ============================================================================
+   BelloBook (Ship's Logbook) + Amphi Ecosystem Extensions (Style.swift Tokens)
+   ============================================================================ */
+
+/* Nested Folder Tree in Sidebar */
+.folder-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.folder-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 9px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.18s var(--spring);
+}
+
+.folder-item:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.folder-item.active {
+  background: rgba(10, 96, 255, 0.12);
+  color: var(--accent);
+}
+
+.folder-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Inline Media Attachments Strip on Paper Sheet */
+.page-attachments-strip {
+  margin: 8px 24px 8px 72px;
+  padding: 10px 12px;
+  border-radius: var(--card-radius);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--hairline);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: var(--control-radius);
+  background: #fff;
+  border: 1px solid var(--hairline);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  transition: transform 0.18s var(--spring), border-color 0.18s;
+}
+
+.attachment-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+/* Floating Audio Deck Mini-Player Bar (Amphi Music parity) */
+.audio-deck-bar {
+  pointer-events: auto;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(20px);
+  border-radius: var(--card-radius);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--toolbar-shadow);
+  width: min(460px, 92vw);
+}
+
+.audio-deck-bar.visible {
+  display: flex;
+}
+
+.audio-deck-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(10, 96, 255, 0.12);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.audio-deck-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.audio-deck-title {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-deck-sub {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-ctrl-btn {
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.audio-ctrl-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* Media Vault Grid & Quick Preview */
+.vault-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  gap: 12px;
+}
+
+.vault-card {
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--card-radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.vault-thumb {
+  height: 92px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 28px;
+}
+
+.vault-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+
+/* ============================================================================
+   Anki Flashcards, Obsidian Textbook / Wiki-Links & Computer LaTeX Styles
+   ============================================================================ */
+
+/* Computer LaTeX & Obsidian Quick-Insert Keyboard Strip */
+.latex-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--hairline);
+  border-radius: var(--card-radius);
+  box-shadow: var(--ambient-shadow);
+  flex-wrap: wrap;
+  max-width: min(860px, 96%);
+  width: 100%;
+}
+
+.latex-chip {
+  padding: 4px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--hairline);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.16s var(--spring);
+}
+
+.latex-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+/* Textbook & Obsidian Rendered Preview */
+.textbook-preview {
+  padding: 18px 36px 32px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  user-select: text;
+}
+
+.textbook-h1 {
+  font-family: "New York", Georgia, serif;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 6px 0 2px;
+  border-bottom: 1px solid var(--hairline);
+  padding-bottom: 4px;
+}
+
+.textbook-h2 {
+  font-family: "New York", Georgia, serif;
+  font-size: 19px;
+  font-weight: 700;
+  margin: 4px 0 0;
+}
+
+.textbook-callout {
+  padding: 12px 14px;
+  border-radius: var(--card-radius);
+  border-left: 4px solid var(--accent);
+  background: rgba(10, 96, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.textbook-callout.callout-definition,
+.textbook-callout.callout-tip {
+  border-left-color: var(--verified);
+  background: rgba(46, 148, 82, 0.08);
+}
+
+.textbook-callout.callout-warning {
+  border-left-color: var(--slip);
+  background: rgba(209, 71, 36, 0.08);
+}
+
+.textbook-callout-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.latex-display-box {
+  padding: 12px 16px;
+  border-radius: var(--card-radius);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--hairline);
+  text-align: center;
+  font-size: 18px;
+}
+
+.wiki-link-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(10, 96, 255, 0.11);
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+}
+
+.wiki-link-pill:hover {
+  background: rgba(10, 96, 255, 0.20);
+}
+
+.obsidian-tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(107, 78, 255, 0.12);
+  color: #5538EE;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+mark.obsidian-mark {
+  background: rgba(250, 204, 21, 0.42);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+/* Anki SM-2 Review Card & 4-Button Rating Bar */
+.anki-card-stage {
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--card-radius);
+  padding: 24px;
+  min-height: 170px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  box-shadow: var(--ambient-shadow);
+}
+
+.anki-rate-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.anki-rate-btn {
+  padding: 10px 8px;
+  border-radius: var(--control-radius);
+  border: 1px solid var(--hairline);
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-weight: 700;
+  font-size: 13px;
+  transition: transform 0.15s var(--spring);
+}
+
+.anki-rate-btn:hover {
+  transform: translateY(-2px);
+}

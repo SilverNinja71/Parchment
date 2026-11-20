@@ -7,8 +7,9 @@ struct SyncSettingsView: View {
     @Environment(\.webAuthenticationSession) private var webAuthentication
 
     @State private var folderPickerService: CloudService?
+    @State private var showFolderPicker = false
     @State private var browsing: CloudService?
-    @State private var showWebDAVSignIn = false
+    @State private var formSignInService: CloudService?
     @State private var signingIn: CloudService?
     @State private var errorMessage: String?
     @State private var disconnecting: SyncEngine.Connection?
@@ -18,6 +19,8 @@ struct SyncSettingsView: View {
 
     var body: some View {
         Form {
+            accountSummary
+
             if !sync.connections.isEmpty {
                 Section {
                     ForEach(sync.connections) { connection in
@@ -56,7 +59,7 @@ struct SyncSettingsView: View {
                 } header: {
                     Text(sync.connections.count == 1 ? "Syncing To" : "Syncing To \(sync.connections.count) Places")
                 } footer: {
-                    Text("Every place gets a full copy of every notebook, saved as .parchment files you can open on any iPad with Parchment. Deleting a notebook here never deletes it from the cloud.")
+                    Text("Every place gets a full copy of every notebook, saved as .parchment files you can open on any iPad with BelloBook. Deleting a notebook here never deletes it from the cloud.")
                 }
             }
 
@@ -84,16 +87,16 @@ struct SyncSettingsView: View {
                     .disabled(signingIn != nil)
                 }
             } header: {
-                Text(sync.connections.isEmpty ? "Choose Where to Sync" : "Add Another Place")
+                Text(sync.connections.isEmpty ? "Sign In With" : "Also Back Up To")
             } footer: {
-                Text("Sign in, then pick any folder in your account. You can sync to as many places as you like. Parchment is free; syncing never needs a subscription.")
+                Text("For iCloud Drive you're already signed in with this iPad's Apple Account: choose iCloud Drive in the picker, then a folder (or make one called BelloBook). BelloBook is free; backup never needs a subscription.")
             }
         }
-        .navigationTitle("Sync")
-        .fileImporter(isPresented: Binding(get: { folderPickerService != nil }, set: { if !$0 { folderPickerService = nil } }),
-                      allowedContentTypes: [.folder]) { result in
+        .navigationTitle("Account & Backup")
+        // The picker closes before it reports back, so the service is kept separately from
+        // the "is it showing" flag (otherwise the choice is gone by the time it arrives).
+        .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
             guard let service = folderPickerService else { return }
-            folderPickerService = nil
             switch result {
             case .success(let url):
                 guard let provider = sync.provider(for: service) as? FolderProvider else { return }
@@ -116,8 +119,8 @@ struct SyncSettingsView: View {
                 }
             }
         }
-        .sheet(isPresented: $showWebDAVSignIn) {
-            WebDAVSignInView { browsing = .webDAV }
+        .sheet(item: $formSignInService) { svc in
+            WebDAVSignInView(service: svc) { browsing = svc }
         }
         .alert("Couldn't connect", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) {}
@@ -134,13 +137,35 @@ struct SyncSettingsView: View {
         }
     }
 
+    /// Says plainly whether your work is safe.
+    private var accountSummary: some View {
+        Section {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: sync.connections.isEmpty ? "exclamationmark.icloud" : "checkmark.icloud.fill")
+                    .font(.system(size: 34))
+                    .foregroundStyle(sync.connections.isEmpty ? Color.orange : Style.selection)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(sync.connections.isEmpty ? "Sign in to keep your work safe" : "Your work is backed up")
+                        .font(.headline)
+                    Text(sync.connections.isEmpty
+                         ? "Right now your work is only on this iPad. If you delete BelloBook, it goes with it. Sign in below and BelloBook keeps a copy of your notebooks, media vault, flashcards, study progress and drawings in your own account."
+                         : "Your notebooks, media vault, flashcards, study progress and drawings are saved to your account. Sign in to the same place on any iPad, or after reinstalling, and it all comes back.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 6)
+        }
+    }
+
     private func start(_ service: CloudService) {
         let provider = sync.provider(for: service)
         switch service.signInStyle {
         case .folderPicker:
             folderPickerService = service
+            showFolderPicker = true
         case .webDAVForm:
-            if provider.isSignedIn { browsing = service } else { showWebDAVSignIn = true }
+            if provider.isSignedIn { browsing = service } else { formSignInService = service }
         case .oauth:
             guard let oauthProvider = provider as? any OAuthCloudProvider else { return }
             if oauthProvider.isSignedIn {
@@ -163,6 +188,7 @@ struct SyncSettingsView: View {
     private func chooseFolder(for service: CloudService) {
         if service.signInStyle == .folderPicker {
             folderPickerService = service
+            showFolderPicker = true
         } else {
             browsing = service
         }
@@ -268,8 +294,9 @@ struct RemoteFolderBrowser: View {
     }
 }
 
-/// Server address, username and password for WebDAV servers such as Nextcloud.
+/// Server address, username and password for WebDAV or self-hosted BelloBook/Amphi servers.
 struct WebDAVSignInView: View {
+    var service: CloudService = .webDAV
     var onSignedIn: () -> Void
     @EnvironmentObject private var sync: SyncEngine
     @Environment(\.dismiss) private var dismiss
@@ -283,24 +310,26 @@ struct WebDAVSignInView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("https://cloud.example.com/remote.php/dav/files/you/", text: $server)
+                    TextField(service == .amphiServer ? "http://localhost:8080" : "https://cloud.example.com/remote.php/dav/files/you/", text: $server)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    TextField("Username", text: $username)
+                    TextField(service == .amphiServer ? "Username (optional)" : "Username", text: $username)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    SecureField("Password or app password", text: $password)
+                    SecureField(service == .amphiServer ? "Password / Token (optional)" : "Password or app password", text: $password)
                         .textContentType(.password)
                 } footer: {
-                    Text("For Nextcloud, find the WebDAV address under Files → Settings, and create an app password under Personal settings → Security.")
+                    Text(service == .amphiServer
+                         ? "Connect one self-hosted BelloBook / Amphi server to sync your notebooks, media vault, audio, and photos."
+                         : "For Nextcloud, find the WebDAV address under Files → Settings, and create an app password under Personal settings → Security.")
                 }
                 if let errorMessage {
                     Text(errorMessage).foregroundStyle(.red)
                 }
             }
-            .navigationTitle("WebDAV Sign In")
+            .navigationTitle(service == .amphiServer ? "BelloBook Server" : "WebDAV Sign In")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -309,7 +338,7 @@ struct WebDAVSignInView: View {
                         ProgressView()
                     } else {
                         Button("Sign In") { Task { await signIn() } }
-                            .disabled(server.isEmpty || username.isEmpty || password.isEmpty)
+                            .disabled(server.isEmpty || (service == .webDAV && (username.isEmpty || password.isEmpty)))
                             .bold()
                     }
                 }
@@ -318,11 +347,14 @@ struct WebDAVSignInView: View {
     }
 
     private func signIn() async {
-        guard let provider = sync.provider(for: .webDAV) as? WebDAVProvider else { return }
         working = true
         defer { working = false }
         do {
-            try await provider.signIn(server: server, username: username, password: password)
+            if service == .amphiServer, let provider = sync.provider(for: .amphiServer) as? AmphiServerProvider {
+                try await provider.signIn(server: server, username: username, password: password)
+            } else if let provider = sync.provider(for: .webDAV) as? WebDAVProvider {
+                try await provider.signIn(server: server, username: username, password: password)
+            }
             dismiss()
             onSignedIn()
         } catch {

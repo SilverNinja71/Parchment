@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 @preconcurrency import PencilKit
 
 /// Hosts the canvas, the paper behind it and the typeset text on top of it.
@@ -19,12 +20,16 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
 
     private let paper = PaperBackgroundView()
     private let textLayer = TextBlockLayerView()
+    private let workAnnotationLayer = WorkAnnotationLayerView()
     private let lassoLayer = CAShapeLayer()
     private lazy var lassoGesture = UIPanGestureRecognizer(target: self, action: #selector(handleLasso(_:)))
     private lazy var textTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTextTap(_:)))
     private var currentTool: EditorTool = .pen
     private var liveTextWorkItem: DispatchWorkItem?
     private var liveTextTask: Task<Void, Never>?
+    private var workCheckWorkItem: DispatchWorkItem?
+    private var workCheckTask: Task<Void, Never>?
+    private var workLineCache: [String: String] = [:]
     /// Left/right margin for flowing paragraphs on document pages.
     private let paragraphMargin: Double = 60
     private var lassoPoints: [CGPoint] = []
@@ -52,17 +57,19 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
 
         // Paper always looks like paper, even in dark mode.
         container.overrideUserInterfaceStyle = .light
-        container.backgroundColor = UIColor(white: 0.93, alpha: 1)
+        container.backgroundColor = .paper
         container.addSubview(canvasView)
         container.onLayout = { [weak self] in self?.containerDidLayout() }
 
         canvasView.delegate = self
-        canvasView.backgroundColor = .paper
-        canvasView.isOpaque = true
+        // The canvas must be see-through, or it paints over the paper lines and PDF behind the ink.
+        canvasView.backgroundColor = .clear
+        canvasView.isOpaque = false
         canvasView.contentInsetAdjustmentBehavior = .never
         canvasView.alwaysBounceVertical = true
         canvasView.insertSubview(paper, at: 0)
         canvasView.addSubview(textLayer)
+        canvasView.addSubview(workAnnotationLayer)
 
         lassoLayer.fillColor = UIColor.systemBlue.withAlphaComponent(0.08).cgColor
         lassoLayer.strokeColor = UIColor.systemBlue.cgColor
@@ -81,6 +88,15 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         textLayer.onTap = { [weak self] id in
             guard let block = self?.page?.textBlocks.first(where: { $0.id == id }) else { return }
             self?.onEditTextBlock?(block)
+        }
+        workAnnotationLayer.onTapBadge = { [weak self] result in
+            withAnimation(Style.spring) {
+                self?.editor?.workCheckResult = result
+            }
+        }
+        workAnnotationLayer.onQuickFix = { [weak self] result in
+            guard let correction = result.suggestedCorrection else { return }
+            self?.applyWorkCheckCorrection(result, correction: correction)
         }
         editor.canvas = self
     }
@@ -108,9 +124,12 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         renderedPDFScale = 0
         paper.pdfImage = nil
         textLayer.setBlocks(page.textBlocks)
+        editor?.clearWorkCheck()
+        workAnnotationLayer.update(results: [], follower: WorkFollowerState())
         laidOutWidth = 0 // forces a fresh fit-to-width zoom
         container.setNeedsLayout()
         updateUndoState()
+        scheduleWorkCheck()
     }
 
     /// The same page changed outside the canvas (paper style, text blocks, size).
@@ -120,6 +139,7 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         if current.paper != page.paper { paper.configure(style: page.kind == .pdf ? .blank : page.paper) }
         textLayer.setBlocks(page.textBlocks)
         updateContentSize()
+        scheduleWorkCheck()
     }
 
     // MARK: - Tools
@@ -129,7 +149,10 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         canvasView.drawingPolicy = fingerDraws ? .anyInput : .pencilOnly
         canvasView.isRulerActive = rulerActive
 
-        if editorTool != currentTool { editor?.livePreview = nil }
+        if editorTool != currentTool {
+            editor?.livePreview = nil
+            editor?.clearWorkCheck()
+        }
         currentTool = editorTool
         let converting = editorTool.circlesInk
         let typing = editorTool == .text
@@ -189,8 +212,10 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         let zoom = canvasView.zoomScale
         paper.layout(pageSize: page.size, zoom: zoom)
         textLayer.layout(pageSize: page.size, zoom: zoom)
+        workAnnotationLayer.layout(pageSize: page.size, zoom: zoom)
         canvasView.sendSubviewToBack(paper)
         canvasView.bringSubviewToFront(textLayer)
+        canvasView.bringSubviewToFront(workAnnotationLayer)
 
         // Center content that is narrower than the screen (zoomed-out freeform pages).
         let inset = max(0, (canvasView.bounds.width - canvasView.contentSize.width) / 2)
@@ -238,6 +263,23 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         scheduleSave()
         updateUndoState()
         scheduleLiveText()
+
+        // Follow user handwriting in real time and schedule work checking
+        if let last = strokes.last {
+            let pts = Array(last.path.interpolatedPoints(by: .distance(12)))
+            let point = pts.last?.location.applying(last.transform) ?? CGPoint(x: last.renderBounds.maxX, y: last.renderBounds.midY)
+            let follower = WorkFollowerState(
+                phase: .following(strokeCount: strokes.count),
+                lastWritingPoint: point,
+                activeBand: last.renderBounds,
+                lastStrokeTimestamp: Date()
+            )
+            editor?.followerState = follower
+            if settings.liveWorkChecker {
+                workAnnotationLayer.update(results: editor?.pageWorkResults ?? [], follower: follower)
+            }
+        }
+        scheduleWorkCheck()
     }
 
     private func applyScratchOut(_ scratch: PKStroke) {
@@ -491,6 +533,133 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         editor?.livePreview = nil
         applyConversion(ConversionRequest(pageID: preview.pageID, strokeIndices: preview.strokeIndices,
                                           bounds: preview.bounds, text: preview.text))
+    }
+
+    // MARK: - Work Following & Checking
+
+    func scheduleWorkCheck() {
+        workCheckWorkItem?.cancel()
+        workCheckTask?.cancel()
+        guard settings.liveWorkChecker, let _ = page else {
+            editor?.clearWorkCheck()
+            workAnnotationLayer.update(results: [], follower: WorkFollowerState())
+            return
+        }
+
+        let item = DispatchWorkItem { [weak self] in
+            self?.performWorkCheck()
+        }
+        workCheckWorkItem = item
+        // Debounce: 0.75s after the pencil lifts or text changes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: item)
+    }
+
+    private func performWorkCheck() {
+        guard let page, let editor else { return }
+        let strokes = canvasView.drawing.strokes
+        let blocks = page.textBlocks
+        guard !strokes.isEmpty || !blocks.isEmpty else {
+            editor.clearWorkCheck()
+            workAnnotationLayer.update(results: [], follower: WorkFollowerState())
+            return
+        }
+
+        let language = settings.recognitionLanguage
+        let strokeCount = strokes.count
+        var localCache = workLineCache
+
+        editor.followerState.phase = .verifying
+        workAnnotationLayer.update(results: editor.pageWorkResults, follower: editor.followerState)
+
+        workCheckTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let results = await WorkChecker.checkPage(
+                strokes: strokes,
+                textBlocks: blocks,
+                pageID: page.id,
+                language: language,
+                cache: &localCache
+            )
+            guard !Task.isCancelled, self.canvasView.drawing.strokes.count == strokeCount else { return }
+            self.workLineCache = localCache
+
+            let actionable = results.filter { $0.status != .inconclusive }
+            // Prefer highlighting any slip or the most recently written line's result
+            let focusResult: WorkVerificationResult?
+            if let activeBand = editor.followerState.activeBand,
+               let matching = actionable.last(where: { $0.bounds.insetBy(dx: -20, dy: -20).intersects(activeBand) }) {
+                focusResult = matching
+            } else {
+                focusResult = actionable.last(where: \.isSlip) ?? actionable.last
+            }
+
+            let previousResultID = editor.workCheckResult?.id
+            withAnimation(Style.spring) {
+                editor.pageWorkResults = results
+                editor.workCheckResult = focusResult
+                editor.followerState.phase = actionable.isEmpty ? .idle : .completed
+            }
+            self.workAnnotationLayer.update(results: results, follower: editor.followerState)
+
+            if let focusResult, focusResult.id != previousResultID, (focusResult.isVerified || focusResult.isSlip) {
+                Style.tap()
+            }
+        }
+    }
+
+    func applyWorkCheckCorrection(_ result: WorkVerificationResult, correction: String) {
+        guard let page, result.pageID == page.id else { return }
+        editor?.workCheckResult = nil
+
+        // 1. If the checked line came from a typed TextBlock, update that TextBlock directly
+        if let blockID = result.textBlockID,
+           let blockIndex = page.textBlocks.firstIndex(where: { $0.id == blockID }) {
+            var updatedBlocks = page.textBlocks
+            let oldText = updatedBlocks[blockIndex].text
+            let newLineText: String
+            if result.category == .writingStyle || correction.contains("=") {
+                newLineText = correction
+            } else if result.isSlip, result.rawText.contains("=") {
+                let lhs = result.rawText.components(separatedBy: "=").first?.trimmingCharacters(in: .whitespaces) ?? result.rawText
+                newLineText = "\(lhs) = \(correction)"
+            } else {
+                newLineText = "\(result.rawText) = \(correction)"
+            }
+            updatedBlocks[blockIndex].text = oldText.replacingOccurrences(of: result.rawText, with: newLineText)
+            updatedBlocks[blockIndex].height = paragraphHeight(updatedBlocks[blockIndex])
+            applyEdit(drawing: canvasView.drawing, textBlocks: updatedBlocks, actionName: "Fix Work")
+            Style.tap()
+            scheduleWorkCheck()
+            return
+        }
+
+        // 2. If it's a style guide fix or full-equation algebraic fix on handwritten strokes, convert that line to the clean corrected text block
+        if result.isSlip && (result.category == .writingStyle || correction.contains("=")) && !result.strokeIndices.isEmpty {
+            applyConversion(ConversionRequest(
+                pageID: page.id,
+                strokeIndices: result.strokeIndices,
+                bounds: result.bounds,
+                text: correction,
+                mode: result.category == .writingStyle ? .text : .math
+            ))
+            scheduleWorkCheck()
+            return
+        }
+
+        // 3. Otherwise, write "= correction" cleanly right beside the handwritten expression
+        let fontSize = min(44, max(16, result.bounds.height * 0.55))
+        let text = correction.hasPrefix("=") ? correction : "= " + correction
+        let block = TextBlock(
+            text: text,
+            x: result.bounds.maxX + 12,
+            y: result.bounds.minY,
+            width: max(120, CGFloat(text.count + 2) * fontSize * 0.62),
+            height: max(result.bounds.height, 36),
+            fontSize: fontSize
+        )
+        applyEdit(drawing: canvasView.drawing, textBlocks: page.textBlocks + [block], actionName: "Verify Work")
+        Style.tap()
+        scheduleWorkCheck()
     }
 
     /// Swaps the circled ink for a typeset text block.

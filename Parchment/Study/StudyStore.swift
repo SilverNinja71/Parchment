@@ -263,7 +263,54 @@ final class StudyStore: ObservableObject {
     }
 
     private func save() {
+        writeState()
+        LibraryBackup.touch()
+    }
+
+    private func writeState() {
         let saved = Saved(decks: decks, cards: cards, pageSchedules: pageSchedules, reviewLog: reviewLog)
         if let data = try? JSONEncoder().encode(saved) { try? data.write(to: stateURL, options: .atomic) }
+    }
+
+    // MARK: - Backup
+
+    func backupPayload() -> (state: Data?, drawings: [String: Data]) {
+        let saved = Saved(decks: decks, cards: cards, pageSchedules: pageSchedules, reviewLog: reviewLog)
+        var drawings: [String: Data] = [:]
+        for url in (try? FileManager.default.contentsOfDirectory(at: cardsFolder, includingPropertiesForKeys: nil)) ?? [] {
+            drawings[url.lastPathComponent] = try? Data(contentsOf: url)
+        }
+        return (try? JSONEncoder().encode(saved), drawings)
+    }
+
+    func restore(state: Data, drawings: [String: Data], merging: Bool) {
+        guard let incoming = try? JSONDecoder().decode(Saved.self, from: state) else { return }
+        if merging {
+            // Keep everything from both sides; the most recently reviewed version of a card wins.
+            for deck in incoming.decks where !decks.contains(where: { $0.id == deck.id }) { decks.append(deck) }
+            for card in incoming.cards {
+                if let index = cards.firstIndex(where: { $0.id == card.id }) {
+                    if (card.schedule.lastReviewed ?? .distantPast) > (cards[index].schedule.lastReviewed ?? .distantPast) {
+                        cards[index] = card
+                    }
+                } else {
+                    cards.append(card)
+                }
+            }
+            for (page, schedule) in incoming.pageSchedules
+            where (schedule.lastReviewed ?? .distantPast) > (pageSchedules[page]?.lastReviewed ?? .distantPast) {
+                pageSchedules[page] = schedule
+            }
+            reviewLog.merge(incoming.reviewLog) { max($0, $1) }
+        } else {
+            decks = incoming.decks
+            cards = incoming.cards
+            pageSchedules = incoming.pageSchedules
+            reviewLog = incoming.reviewLog
+        }
+        for (name, data) in drawings {
+            try? data.write(to: cardsFolder.appendingPathComponent((name as NSString).lastPathComponent), options: .atomic)
+        }
+        writeState()
     }
 }

@@ -1,29 +1,464 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Parchment</title>
-<style>
-  :root { --ink: #1f2430; --muted: #5b6272; --accent: #0a60ff; --paper: #fbf9f5; }
-  @media (prefers-color-scheme: dark) { :root { --ink: #eceef3; --muted: #a3a9b6; --paper: #1c1d21; } }
-  body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  main { max-width: 720px; margin: 0 auto; padding: 64px 16px; }
-  h1 { font-family: "New York", Georgia, serif; font-size: 2.6rem; margin: 0; }
-  p { color: var(--muted); }
-  a { color: var(--accent); }
-  ul { padding-left: 1.2rem; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BelloBook — Ship's Log, Live Work Checker &amp; Self-Hosted Studio</title>
+  <link rel="stylesheet" href="parchment-web.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
-<main>
-  <h1>Parchment</h1>
-  <p>A free, privacy-first handwriting notes app for iPad. No ads, no subscriptions.</p>
-  <ul>
-    <li><a href="https://github.com/SilverNinja71/Parchment">Source code and how to help</a></li>
-    <li><a href="https://github.com/SilverNinja71/Parchment/issues">Support and bug reports</a></li>
-    <li><a href="privacy.html">Privacy policy</a></li>
-  </ul>
-</main>
+  <div class="app-shell">
+    <!-- Top Chrome Bar -->
+    <header class="top-bar">
+      <div class="brand-group">
+        <!-- BelloBook Ship's Logbook Icon (Warm Paper + Terracotta + MyScript Blue) -->
+        <svg class="parchment-logo" viewBox="0 0 64 64" aria-hidden="true">
+          <defs>
+            <linearGradient id="belloGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#F7EFE4"/>
+              <stop offset="55%" stop-color="#DFB899"/>
+              <stop offset="100%" stop-color="#B86B43"/>
+            </linearGradient>
+          </defs>
+          <rect width="64" height="64" rx="15" fill="url(#belloGrad)"/>
+          <rect x="16" y="11" width="32" height="42" rx="5" fill="#FBF9F5" stroke="#8B4A2E" stroke-width="2.2"/>
+          <!-- Ship compass / helm emblem + live check -->
+          <circle cx="32" cy="24" r="6.5" fill="none" stroke="#0A60FF" stroke-width="2.2"/>
+          <path d="M32 15.5 L32 32.5 M23.5 24 L40.5 24" stroke="#0A60FF" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M22 41 L27 46 L42 35" fill="none" stroke="#2E9452" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="brand-title">BelloBook</span>
+        <div class="notebook-crumb">
+          <span>Log:</span>
+          <strong id="activeNotebookCrumb">Algebra &amp; Step Checker</strong>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <button class="btn" id="openNewNotebookBtn" title="Create a new notebook with 3D cover, folder &amp; paper preview">
+          + New Log
+        </button>
+        <button class="btn" id="toggleTextbookBtn" title="Switch between Live Work Editor &amp; Obsidian Textbook / LaTeX Preview">
+          Textbook View
+        </button>
+        <button class="btn" id="openAnkiBtn" title="Study Anki SM-2 Flashcards, Cloze {{c1::...}}, Export .txt &amp; AnkiConnect">
+          Anki Cards
+        </button>
+        <button class="btn" id="openObsidianBtn" title="Two-way Sync with an Obsidian Vault (.md, YAML, [[Wiki-Links]], Callouts)">
+          Obsidian Sync
+        </button>
+        <button class="btn" id="openVaultBtn" title="Attach &amp; preview photos, audio, videos, PDFs, or documents">
+          Media Vault
+        </button>
+        <button class="btn" id="exportMarkdownBtn" title="Export current notebook as Markdown (.md)">
+          Export .md
+        </button>
+        <button class="btn" id="exportPdfBtn" title="Print or save current notebook as PDF">
+          Export PDF
+        </button>
+        <button class="btn" id="openRecallBtn" title="Test your memory with Active Recall &amp; automatic Work Checker grading">
+          Active Recall
+        </button>
+        <button class="btn" id="fixAllSlipsBtn" title="Automatically apply Work Checker fixes across the page">
+          Fix Slips
+        </button>
+        <button class="btn btn-pill-active" id="openSyncModalBtn" title="One Server, Sync All — connect your self-hosted BelloBook / Amphi server">
+          Server Sync
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="workspace">
+      <!-- Left Sidebar: Nested Folders, Notebooks, Paper Styles, Guide -->
+      <aside class="sidebar">
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:0 4px 6px">
+            <span class="sidebar-section-title" style="margin:0">Folders</span>
+            <button class="btn" id="newFolderBtn" style="padding:2px 7px;font-size:11px">+ Folder</button>
+          </div>
+          <div class="folder-tree" id="folderTree"></div>
+        </div>
+
+        <div>
+          <div class="sidebar-section-title">Notebooks</div>
+          <div class="notebook-list" id="notebookList"></div>
+        </div>
+
+        <div>
+          <div class="sidebar-section-title">Paper Template</div>
+          <div class="paper-mini-grid" id="paperStyleChips"></div>
+        </div>
+
+        <div class="pane-card" style="padding:12px;gap:8px;background:var(--paper)">
+          <div class="sidebar-section-title" style="margin:0">Live Work Checker</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.45">
+            BelloBook follows each line top-to-bottom as you type or draw:
+          </div>
+          <ul style="margin:0;padding-left:16px;font-size:11.5px;color:var(--ink);line-height:1.5">
+            <li><strong style="color:var(--accent)">Multi-step Algebra:</strong> Tracks roots &amp; catches sign or distribution slips.</li>
+            <li><strong style="color:var(--verified)">Math &amp; Units:</strong> Evaluates trailing <code>=</code>, chained equalities, trig &amp; SI units.</li>
+            <li><strong style="color:var(--terracotta)">Style Guide:</strong> Catches repeated words, grammar &amp; conciseness rules.</li>
+          </ul>
+          <button class="btn" id="addLineBtn" style="width:100%;justify-content:center;margin-top:4px">
+            + Add Line Row
+          </button>
+        </div>
+      </aside>
+
+      <!-- Center Stage: Floating MyScript Toolbar + Warm Paper Sheet -->
+      <main class="canvas-stage">
+        <!-- Floating Pill Toolbar -->
+        <div class="editor-toolbar" role="toolbar" aria-label="Editor tools">
+          <button class="tool-btn active" data-tool="type" title="Type &amp; edit equations or notes directly on lines">
+            ⌨ Type / Edit
+          </button>
+          <button class="tool-btn" data-tool="pen" title="Draw freehand ink (zig-zag over ink to scratch-out erase)">
+            ✒ Pen
+          </button>
+          <button class="tool-btn" data-tool="highlighter" title="Highlight equations or key concepts">
+            🖍 Highlighter
+          </button>
+          <button class="tool-btn" data-tool="eraser" title="Erase ink strokes">
+            ⌫ Eraser
+          </button>
+
+          <div class="toolbar-divider"></div>
+
+          <!-- Ink Swatches -->
+          <button class="color-swatch active" data-ink-color="#1F2430" style="background:#1F2430" title="Charcoal Ink"></button>
+          <button class="color-swatch" data-ink-color="#0A60FF" style="background:#0A60FF" title="MyScript Blue"></button>
+          <button class="color-swatch" data-ink-color="#8B4A2E" style="background:#8B4A2E" title="Terracotta"></button>
+          <button class="color-swatch" data-ink-color="#2E9452" style="background:#2E9452" title="Forest Green"></button>
+
+          <div class="toolbar-divider"></div>
+
+          <button class="tool-btn" id="clearInkBtn" title="Clear freehand ink strokes on this page">
+            Clear Ink
+          </button>
+          <button class="tool-btn active" id="toggleFollowerBtn" title="Toggle Live Work Follower &amp; Margin Checker">
+            ✓ Work Checker
+          </button>
+        </div>
+
+        <!-- Computer LaTeX & Obsidian Markdown Quick-Insert Bar -->
+        <div class="latex-bar" id="latexBar" aria-label="LaTeX and Obsidian shortcuts">
+          <span style="font-size:11px;font-weight:700;color:var(--muted);margin-right:4px">LaTeX / Obsidian:</span>
+          <button class="latex-chip" data-insert="$  $">$…$</button>
+          <button class="latex-chip" data-insert="$$  $$">$$…$$</button>
+          <button class="latex-chip" data-insert="\frac{a}{b}">\frac{a}{b}</button>
+          <button class="latex-chip" data-insert="\sqrt{x}">\sqrt{x}</button>
+          <button class="latex-chip" data-insert="^{2}">x^{2}</button>
+          <button class="latex-chip" data-insert="\sum_{i=1}^{n}">\sum</button>
+          <button class="latex-chip" data-insert="\int_{a}^{b}">\int</button>
+          <button class="latex-chip" data-insert="[[Algebra & Step Checker]]">[[Link]]</button>
+          <button class="latex-chip" data-insert="> [!theorem] Key Theorem">> [!theorem]</button>
+          <button class="latex-chip" data-insert="> [!definition] Term">> [!definition]</button>
+          <button class="latex-chip" data-insert="==highlight==">==mark==</button>
+          <button class="latex-chip" data-insert="#study">#tag</button>
+        </div>
+
+        <!-- Warm Off-White Paper Sheet -->
+        <div class="paper-sheet paper-ruled" id="paperSheet">
+          <div class="paper-margin-line"></div>
+          <div class="pen-follower-dot" id="penFollowerDot"></div>
+
+          <div class="page-header">
+            <input
+              type="text"
+              class="page-title-input"
+              id="pageTitleInput"
+              value="Algebra &amp; Step Checker"
+              aria-label="Notebook title"
+            />
+            <div class="page-status-summary" id="pageStatusSummary"></div>
+          </div>
+
+          <!-- Inline Media Attachments Strip (Amphi Notes/Photos/Audio/Cloud) -->
+          <div class="page-attachments-strip" id="pageAttachmentsStrip" style="display:none"></div>
+
+          <!-- Interactive Line Rows with Left Follower Bracket & Right Margin Badges -->
+          <div class="work-lines-container" id="workLinesContainer"></div>
+
+          <!-- Obsidian Textbook, Markdown & LaTeX Rendered Preview -->
+          <div class="textbook-preview" id="textbookPreview" style="display:none"></div>
+
+          <!-- Freehand Ink Overlay Canvas -->
+          <canvas class="ink-canvas passthrough" id="inkCanvas"></canvas>
+        </div>
+      </main>
+    </div>
+
+    <!-- Floating Bottom Audio Deck + Work Follower Pill + Step Inspector Popover -->
+    <div class="floating-follower-dock" id="floatingFollowerDock">
+      <div class="audio-deck-bar" id="audioDeckBar">
+        <div class="audio-deck-icon">♫</div>
+        <div class="audio-deck-meta">
+          <div class="audio-deck-title" id="audioDeckTitle">No track loaded</div>
+          <div class="audio-deck-sub" id="audioDeckSub">BelloBook Audio Deck</div>
+        </div>
+        <button class="audio-ctrl-btn" id="audioPrevBtn" title="Previous track">⏮</button>
+        <button class="audio-ctrl-btn" id="audioPlayPauseBtn" title="Play / Pause" style="color:var(--accent);font-size:18px">▶</button>
+        <button class="audio-ctrl-btn" id="audioNextBtn" title="Next track">⏭</button>
+        <button class="audio-ctrl-btn" id="audioCloseBtn" title="Hide Audio Deck">✕</button>
+      </div>
+
+      <div class="step-inspector-popover" id="stepInspectorPopover">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <strong style="font-size:14px">Work Checker — Multi-Step Page Log</strong>
+          <span style="font-size:11px;color:var(--muted)">100% On-Device</span>
+        </div>
+        <div class="step-log-list" id="stepLogList"></div>
+      </div>
+
+      <div class="follower-pill" id="followerPill"></div>
+    </div>
+  </div>
+
+  <!-- Two-Pane New Notebook & 3D Cover Customizer Modal -->
+  <div class="modal-backdrop" id="newNotebookModal" role="dialog" aria-modal="true" aria-labelledby="newModalHeading">
+    <div class="wide-sheet">
+      <div class="sheet-header">
+        <button class="btn" id="closeNewNotebookBtn">Cancel</button>
+        <strong id="newModalHeading" style="font-size:15px">New BelloBook Log</strong>
+        <button class="btn btn-primary" id="createNotebookConfirmBtn">Create</button>
+      </div>
+
+      <div class="two-pane-body">
+        <div class="pane-card">
+          <div>
+            <div class="sidebar-section-title">Notebook Title</div>
+            <input
+              type="text"
+              id="newNotebookTitleInput"
+              value="Navigation &amp; Statics"
+              style="width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--hairline);font-size:14px;font-weight:600"
+            />
+          </div>
+
+          <div>
+            <div class="sidebar-section-title">Folder Path (Nested Supported)</div>
+            <input
+              type="text"
+              id="newNotebookFolderInput"
+              placeholder="e.g. Ship's Log/Voyages"
+              value="Engineering/Statics"
+              style="width:100%;padding:8px 12px;border-radius:10px;border:1px solid var(--hairline);font-size:13px"
+            />
+          </div>
+
+          <div>
+            <div class="sidebar-section-title">Cover Color</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <button class="color-swatch active" data-cover-color="#0A60FF" style="width:28px;height:28px;background:#0A60FF"></button>
+              <button class="color-swatch" data-cover-color="#8B4A2E" style="width:28px;height:28px;background:#8B4A2E"></button>
+              <button class="color-swatch" data-cover-color="#2E9452" style="width:28px;height:28px;background:#2E9452"></button>
+              <button class="color-swatch" data-cover-color="#6B4EFF" style="width:28px;height:28px;background:#6B4EFF"></button>
+              <button class="color-swatch" data-cover-color="#1F2430" style="width:28px;height:28px;background:#1F2430"></button>
+              <button class="color-swatch" data-cover-color="#C85A32" style="width:28px;height:28px;background:#C85A32"></button>
+            </div>
+          </div>
+
+          <div>
+            <div class="sidebar-section-title">Paper Template</div>
+            <div class="paper-mini-grid">
+              <button class="paper-chip active" data-modal-paper="ruled">Ruled</button>
+              <button class="paper-chip" data-modal-paper="dottedLined">Dotted-Lined</button>
+              <button class="paper-chip" data-modal-paper="grid">Grid</button>
+              <button class="paper-chip" data-modal-paper="dotted">Dotted</button>
+              <button class="paper-chip" data-modal-paper="blank">Blank</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane-card" style="align-items:center;justify-content:center;background:var(--paper)">
+          <div class="sidebar-section-title">Interactive 3D Cover Preview</div>
+          <div class="cover-3d-stage">
+            <div class="cover-3d-book" id="cover3DBook" style="background:#0A60FF">
+              <div class="cover-spine"></div>
+              <div style="font-family:'New York',Georgia,serif;font-size:18px;font-weight:700;line-height:1.25" id="cover3DTitle">
+                Navigation &amp; Statics
+              </div>
+              <div style="font-size:11px;opacity:0.8">BelloBook · Live Work Checker</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Media, Photo, Audio & Quick File Preview Vault Modal -->
+  <div class="modal-backdrop" id="vaultModal" role="dialog" aria-modal="true" aria-labelledby="vaultModalHeading">
+    <div class="wide-sheet">
+      <div class="sheet-header">
+        <button class="btn" id="closeVaultBtn">Done</button>
+        <strong id="vaultModalHeading" style="font-size:15px">Media, Audio &amp; File Vault</strong>
+        <label class="btn btn-primary" style="cursor:pointer">
+          + Attach Files
+          <input type="file" id="vaultFileInput" multiple accept="image/*,audio/*,video/*,.pdf,.md,.txt,.csv" style="display:none" />
+        </label>
+      </div>
+
+      <div style="padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <span style="font-size:12.5px;color:var(--muted)">
+            Attach photos, audio tracks (plays in the Audio Deck), videos, PDFs, or Markdown files to this notebook.
+          </span>
+          <button class="btn" id="addDemoAudioBtn" style="font-size:12px">+ Add Sample Audio Track</button>
+        </div>
+
+        <div class="vault-grid" id="vaultGrid"></div>
+
+        <!-- Inline Quick Previewer (Amphi Cloud parity) -->
+        <div class="pane-card" id="vaultPreviewPane" style="display:none;background:var(--paper)">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <strong id="vaultPreviewTitle" style="font-size:14px">Preview</strong>
+            <button class="btn" id="closeVaultPreviewBtn" style="padding:3px 10px;font-size:11px">Close Preview</button>
+          </div>
+          <div id="vaultPreviewBody" style="max-height:280px;overflow:auto"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- One-Server Sync ("One Server, Sync All") Modal -->
+  <div class="modal-backdrop" id="syncModal" role="dialog" aria-modal="true" aria-labelledby="syncModalHeading">
+    <div class="wide-sheet" style="max-width:640px">
+      <div class="sheet-header">
+        <button class="btn" id="closeSyncBtn">Done</button>
+        <strong id="syncModalHeading" style="font-size:15px">One Server, Sync All (BelloBook / Amphi)</strong>
+        <button class="btn btn-primary" id="saveSyncBtn">Save &amp; Sync</button>
+      </div>
+
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+        <div class="pane-card">
+          <div class="sidebar-section-title">Self-Hosted Server URL</div>
+          <input
+            type="url"
+            id="syncServerUrlInput"
+            placeholder="http://localhost:8080"
+            style="width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--hairline);font-size:13.5px"
+          />
+          <div style="font-size:12px;color:var(--muted)">
+            Syncs Notes, Media Vault, Audio Deck, and Photos through one private self-hosted server (or export a portable archive below).
+          </div>
+          <div id="syncStatusMsg" style="font-size:12px;font-weight:600;color:var(--accent)"></div>
+        </div>
+
+        <div class="pane-card" style="flex-direction:row;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:13px;font-weight:700">Portable Library Archive</div>
+            <div style="font-size:12px;color:var(--muted)">Download all notebooks, folders &amp; attachments as JSON</div>
+          </div>
+          <button class="btn" id="exportArchiveJsonBtn">Download .bellobook.json</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Anki Flashcards (SM-2, Cloze, .txt Export & AnkiConnect) Modal -->
+  <div class="modal-backdrop" id="ankiModal" role="dialog" aria-modal="true" aria-labelledby="ankiModalHeading">
+    <div class="wide-sheet">
+      <div class="sheet-header">
+        <button class="btn" id="closeAnkiBtn">Done</button>
+        <strong id="ankiModalHeading" style="font-size:15px">Anki Flashcards — SM-2 &amp; Cloze</strong>
+        <div style="display:flex;gap:6px">
+          <button class="btn" id="exportAnkiTxtBtn" title="Export deck as Anki Tab-Separated .txt">Export Anki .txt</button>
+          <button class="btn btn-primary" id="pushAnkiConnectBtn" title="Push cards directly to desktop Anki (127.0.0.1:8765)">Push to Anki</button>
+        </div>
+      </div>
+
+      <div class="two-pane-body">
+        <div class="pane-card">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span class="sidebar-section-title" style="margin:0">Study Queue (<span id="ankiQueueCount">0</span> due)</span>
+            <button class="btn" id="ankiFlipBtn" style="padding:4px 10px;font-size:12px">Show Answer</button>
+          </div>
+          <div class="anki-card-stage" id="ankiCardStage"></div>
+          <div class="anki-rate-grid" id="ankiRateGrid" style="display:none">
+            <button class="anki-rate-btn" data-anki-rate="1" style="color:var(--slip)"><span>Again</span><small id="ankiInt1">1m</small></button>
+            <button class="anki-rate-btn" data-anki-rate="2" style="color:#B8862B"><span>Hard</span><small id="ankiInt2">12h</small></button>
+            <button class="anki-rate-btn" data-anki-rate="3" style="color:var(--verified)"><span>Good</span><small id="ankiInt3">1d</small></button>
+            <button class="anki-rate-btn" data-anki-rate="4" style="color:var(--accent)"><span>Easy</span><small id="ankiInt4">4d</small></button>
+          </div>
+          <div id="ankiStatusMsg" style="font-size:12px;color:var(--accent);font-weight:600"></div>
+        </div>
+
+        <div class="pane-card">
+          <div class="sidebar-section-title">Add Anki Card (Supports Cloze <code>{{c1::...}}</code> &amp; LaTeX)</div>
+          <input type="text" id="ankiNewFront" placeholder="Front or Cloze: Mitochondria produce {{c1::ATP}}" style="padding:8px 10px;border-radius:8px;border:1px solid var(--hairline);font-size:13px" />
+          <textarea id="ankiNewBack" rows="3" placeholder="Back answer (optional for Cloze) or LaTeX formula..." style="padding:8px 10px;border-radius:8px;border:1px solid var(--hairline);font-size:13px;resize:vertical"></textarea>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" id="ankiAddCardBtn" style="flex:1;justify-content:center">+ Add Card</button>
+            <button class="btn" id="ankiFromNoteBtn" title="Turn lines from active notebook into cards">From Notebook</button>
+          </div>
+          <div style="max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:5px" id="ankiCardList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Obsidian Vault Two-Way Sync Modal -->
+  <div class="modal-backdrop" id="obsidianModal" role="dialog" aria-modal="true" aria-labelledby="obsidianModalHeading">
+    <div class="wide-sheet" style="max-width:680px">
+      <div class="sheet-header">
+        <button class="btn" id="closeObsidianBtn">Done</button>
+        <strong id="obsidianModalHeading" style="font-size:15px">Obsidian Vault Sync (.md, [[Wiki-Links]], Callouts)</strong>
+        <button class="btn btn-primary" id="syncObsidianFolderBtn">Pick Vault Folder</button>
+      </div>
+
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px;overflow-y:auto">
+        <div class="pane-card">
+          <div class="sidebar-section-title">Two-Way Obsidian Markdown Sync</div>
+          <div style="font-size:12.5px;color:var(--muted);line-height:1.5">
+            Select your local Obsidian Vault folder (works in Chrome/Edge/Arc via File System Access) to write all BelloBook notebooks as <code>.md</code> files with YAML frontmatter, <code>[[Wiki-Links]]</code>, textbook callouts, and LaTeX—and import your vault's Markdown notes into BelloBook.
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <label class="btn" style="cursor:pointer">
+              Import .md Files from Vault
+              <input type="file" id="obsidianImportFilesInput" multiple accept=".md,.markdown" style="display:none" />
+            </label>
+            <button class="btn" id="obsidianDownloadBundleBtn">Download Obsidian Markdown (.md)</button>
+          </div>
+          <div id="obsidianSyncStatus" style="font-size:12px;font-weight:600;color:var(--accent)"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Recall Practice & Work Comparison Modal -->
+  <div class="modal-backdrop" id="recallModal" role="dialog" aria-modal="true" aria-labelledby="recallModalHeading">
+    <div class="wide-sheet">
+      <div class="sheet-header">
+        <button class="btn" id="closeRecallBtn">Done</button>
+        <strong id="recallModalHeading" style="font-size:15px">Active Recall — Side-by-Side Work Checker</strong>
+        <span style="font-size:12px;color:var(--accent);font-weight:600">Auto-Graded</span>
+      </div>
+
+      <div class="two-pane-body">
+        <div class="pane-card">
+          <div class="sidebar-section-title">Original Page Notes</div>
+          <pre
+            id="recallOriginalBox"
+            style="margin:0;padding:12px;border-radius:10px;background:var(--paper);border:1px solid var(--hairline);font-family:monospace;font-size:13px;line-height:1.6;white-space:pre-wrap"
+          ></pre>
+        </div>
+
+        <div class="pane-card">
+          <div class="sidebar-section-title">Your Recall Rewrite (Edit to test live scoring)</div>
+          <textarea
+            id="recallAttemptInput"
+            rows="6"
+            style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--hairline);font-family:monospace;font-size:13px;line-height:1.55;resize:vertical"
+          ></textarea>
+          <div id="recallSummarySlot"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="parchment-web.js"></script>
 </body>
 </html>

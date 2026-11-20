@@ -22,7 +22,7 @@ struct SettingsView: View {
                         SyncSettingsView()
                     } label: {
                         HStack {
-                            ThemedLabel("Sync", icon: .sync)
+                            ThemedLabel("Account & Backup", icon: .sync)
                             Spacer()
                             Text(sync.connections.isEmpty ? "Off" : sync.connections.count == 1 ? sync.connections[0].service.title : "\(sync.connections.count) places").foregroundStyle(.secondary)
                         }
@@ -38,13 +38,14 @@ struct SettingsView: View {
                     Toggle("Draw with Finger", isOn: $settings.fingerDraws)
                     Toggle("Scratch Out to Erase", isOn: $settings.scratchOutToErase)
                     Toggle("Live Text Preview", isOn: $settings.liveTextPreview)
+                    Toggle("Check Work As You Write", isOn: $settings.liveWorkChecker)
                     Picker("Handwriting Language", selection: $settings.recognitionLanguage) {
                         ForEach(languages, id: \.code) { Text($0.name).tag($0.code) }
                     }
                 } header: {
                     Text("Writing")
                 } footer: {
-                    Text("With Draw with Finger off, Apple Pencil writes and your finger scrolls — just like MyScript's Active Pen. Scribble over ink to erase it. Double-tap Apple Pencil to switch to the eraser. Live Text Preview shows what Parchment reads from the line you're writing on Document pages, so you can convert it in one tap.")
+                    Text("With Draw with Finger off, Apple Pencil writes and your finger scrolls — just like MyScript's Active Pen. Scribble over ink to erase it. Double-tap Apple Pencil to switch to the eraser. Live Text Preview reads the line you're writing. Check Work As You Write follows handwriting in real time and verifies math calculations, equations, and derivation steps.")
                 }
 
                 Section("New Pages") {

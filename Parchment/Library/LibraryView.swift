@@ -6,6 +6,8 @@ struct LibraryView: View {
     @Binding var path: [UUID]
     /// Show one subject's notebooks, or everything when nil.
     var subject: String? = nil
+    /// Show one folder's notebooks (prefix match for nested folders), or everything when nil.
+    var folderPath: String? = nil
     @EnvironmentObject private var store: NotebookStore
     @EnvironmentObject private var sync: SyncEngine
     @ObservedObject private var theme = ThemeStore.shared
@@ -24,7 +26,13 @@ struct LibraryView: View {
 
     private var notebooks: [Notebook] {
         let query = search.trimmingCharacters(in: .whitespaces)
-        let base = store.notebooks(in: subject)
+        var base = store.notebooks(in: subject)
+        if let folderPath, !folderPath.isEmpty {
+            base = base.filter { nb in
+                let p = nb.folderPath ?? ""
+                return p == folderPath || p.hasPrefix(folderPath + "/")
+            }
+        }
         guard !query.isEmpty else { return base }
         return base.filter { $0.title.localizedCaseInsensitiveContains(query) }
     }

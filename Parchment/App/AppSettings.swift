@@ -14,6 +14,8 @@ final class AppSettings: ObservableObject {
     @Published var recognitionLanguage: String { didSet { defaults.set(recognitionLanguage, forKey: Keys.language) } }
     /// Shows what Parchment reads from the line you're writing, ready to convert in one tap.
     @Published var liveTextPreview: Bool { didSet { defaults.set(liveTextPreview, forKey: Keys.liveText) } }
+    /// Follows handwriting in real time and checks calculations and derivation steps.
+    @Published var liveWorkChecker: Bool { didSet { defaults.set(liveWorkChecker, forKey: Keys.liveWorkChecker) } }
 
     private let defaults = UserDefaults.standard
 
@@ -24,6 +26,7 @@ final class AppSettings: ObservableObject {
         static let paper = "settings.defaultPaper"
         static let language = "settings.recognitionLanguage"
         static let liveText = "settings.liveTextPreview"
+        static let liveWorkChecker = "settings.liveWorkChecker"
     }
 
     init() {
@@ -38,5 +41,6 @@ final class AppSettings: ObservableObject {
         defaultPaper = PaperStyle(rawValue: defaults.string(forKey: Keys.paper) ?? "") ?? .ruled
         recognitionLanguage = defaults.string(forKey: Keys.language) ?? "automatic"
         liveTextPreview = defaults.object(forKey: Keys.liveText) as? Bool ?? true
+        liveWorkChecker = defaults.object(forKey: Keys.liveWorkChecker) as? Bool ?? true
     }
 }

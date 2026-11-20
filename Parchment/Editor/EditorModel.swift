@@ -127,6 +127,12 @@ final class EditorModel: ObservableObject {
     @Published var isRecognizing = false
     @Published var conversion: ConversionRequest?
     @Published var livePreview: LivePreview?
+    /// Real-time handwriting follower state.
+    @Published var followerState = WorkFollowerState()
+    /// Active work verification outcome from following the user's handwriting.
+    @Published var workCheckResult: WorkVerificationResult?
+    /// All line-by-line verification outcomes on the current page.
+    @Published var pageWorkResults: [WorkVerificationResult] = []
     /// A short message shown at the bottom of the editor ("Couldn't find any shapes").
     @Published var notice: String?
 
@@ -169,4 +175,12 @@ final class EditorModel: ObservableObject {
     func applyConversion(_ request: ConversionRequest) { canvas?.applyConversion(request) }
     func addMathAnswer(_ request: ConversionRequest) { canvas?.addMathAnswer(request) }
     func convertLivePreview() { canvas?.convertLivePreview() }
+    func applyWorkCheckCorrection(_ result: WorkVerificationResult, correction: String) {
+        canvas?.applyWorkCheckCorrection(result, correction: correction)
+    }
+    func clearWorkCheck() {
+        workCheckResult = nil
+        pageWorkResults = []
+        followerState.phase = .idle
+    }
 }

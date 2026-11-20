@@ -17,6 +17,8 @@ struct FlashcardsHomeView: View {
     @State private var addingDeck = false
     @State private var renaming: Deck?
     @State private var deleting: Deck?
+    @State private var ankiShareURL: ShareItem?
+    @State private var ankiNotice: String?
 
     var body: some View {
         List {
@@ -61,6 +63,23 @@ struct FlashcardsHomeView: View {
                         }
                     }
                     .contextMenu {
+                        Button("Export for Anki (.txt)") {
+                            let deckCards = study.cards(in: deck.id)
+                            if let url = try? AnkiBridge.exportAnkiTSV(deck: deck, cards: deckCards) {
+                                ankiShareURL = ShareItem(url: url)
+                            }
+                        }
+                        Button("Push to Anki (AnkiConnect)") {
+                            let deckCards = study.cards(in: deck.id)
+                            Task {
+                                do {
+                                    let count = try await AnkiBridge.pushDeckToAnkiConnect(deck: deck, cards: deckCards)
+                                    ankiNotice = "Pushed \(count) cards to Anki."
+                                } catch {
+                                    ankiNotice = "AnkiConnect unavailable: \(error.localizedDescription)"
+                                }
+                            }
+                        }
                         Button("Rename") { newDeckName = deck.name; renaming = deck }
                         Button("Delete Deck", role: .destructive) { deleting = deck }
                     }
@@ -75,6 +94,14 @@ struct FlashcardsHomeView: View {
             }
         }
         .navigationTitle("Flashcards")
+        .sheet(item: $ankiShareURL) { item in
+            ActivityView(items: [item.url])
+        }
+        .alert("Anki Sync", isPresented: Binding(get: { ankiNotice != nil }, set: { if !$0 { ankiNotice = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(ankiNotice ?? "")
+        }
         .toolbar {
             Button {
                 newDeckName = ""
@@ -306,6 +333,7 @@ struct FlashcardReviewView: View {
     @State private var rating: RecallRating?
     @State private var flipAngle: Double = 0
     @State private var reviewed = 0
+    @State private var recallSummary: RecallVerificationSummary?
 
     private var card: Flashcard? { queue.first.flatMap { study.card($0) } }
 
@@ -376,23 +404,30 @@ struct FlashcardReviewView: View {
             }
 
         case .revealed:
-            HStack(spacing: 20) {
-                VStack(spacing: 10) {
-                    Text("Your answer").font(.headline)
-                    Group {
-                        if attempt.strokes.isEmpty {
-                            Text("Nothing written").foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        } else {
-                            InkImageView(data: attempt.dataRepresentation()).padding(24)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
+            VStack(spacing: 14) {
+                if let summary = recallSummary {
+                    RecallWorkSummaryCard(summary: summary) { suggested in
+                        rating = RecallRating(rawValue: suggested)
                     }
-                    .studyCard()
                 }
-                VStack(spacing: 10) {
-                    Text("Correct answer").font(.headline)
-                    CardFaceView(card: card, side: .back)
+                HStack(spacing: 20) {
+                    VStack(spacing: 10) {
+                        Text("Your answer").font(.headline)
+                        Group {
+                            if attempt.strokes.isEmpty {
+                                Text("Nothing written").foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            } else {
+                                InkImageView(data: attempt.dataRepresentation()).padding(24)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                        }
+                        .studyCard()
+                    }
+                    VStack(spacing: 10) {
+                        Text("Correct answer").font(.headline)
+                        CardFaceView(card: card, side: .back)
+                    }
                 }
             }
         }
@@ -416,6 +451,7 @@ struct FlashcardReviewView: View {
                 Button {
                     if phase == .writing {
                         withAnimation(.easeInOut(duration: 0.3)) { phase = .revealed }
+                        evaluateCardAttempt(card)
                     } else {
                         next(card)
                     }
@@ -445,6 +481,29 @@ struct FlashcardReviewView: View {
         }
     }
 
+    private func evaluateCardAttempt(_ card: Flashcard) {
+        let attemptDrawing = attempt
+        let backText = card.backText
+        let backDrawing = study.drawing(for: card.id, side: .back).flatMap { try? PKDrawing(data: $0) }
+        let language = AppSettings.shared.recognitionLanguage
+
+        Task { @MainActor in
+            var origFull = backText
+            if let backDrawing, !backDrawing.strokes.isEmpty {
+                let rec = (try? await HandwritingRecognizer.recognize(backDrawing, language: language)) ?? ""
+                if !rec.isEmpty {
+                    origFull = origFull.isEmpty ? rec : origFull + "\n" + rec
+                }
+            }
+            let attemptRec = attemptDrawing.strokes.isEmpty
+                ? ""
+                : ((try? await HandwritingRecognizer.recognize(attemptDrawing, language: language)) ?? "")
+            withAnimation(Style.spring) {
+                recallSummary = WorkChecker.compareRecall(originalText: origFull, attemptText: attemptRec)
+            }
+        }
+    }
+
     private func next(_ card: Flashcard) {
         guard let rating else { return }
         study.review(card.id, rating: rating)
@@ -454,6 +513,7 @@ struct FlashcardReviewView: View {
         if rating.rawValue <= 2 { queue.append(card.id) }
         attempt = PKDrawing()
         self.rating = nil
+        self.recallSummary = nil
         withAnimation { phase = .front }
     }
 }

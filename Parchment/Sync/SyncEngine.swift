@@ -47,6 +47,8 @@ final class SyncEngine: ObservableObject {
     /// Sync records per place (connection ID → notebook ID → record).
     private var allRecords: [String: [UUID: Record]] = [:]
     /// The records of the place being synced right now.
+    /// The notebook open on screen; sync leaves it alone until it's closed.
+    var notebookInUse: UUID?
     private var records: [UUID: Record] {
         get { allRecords[activeConnectionID ?? ""] ?? [:] }
         set { allRecords[activeConnectionID ?? ""] = newValue }
@@ -97,7 +99,8 @@ final class SyncEngine: ObservableObject {
         if let provider = providers[service] { return provider }
         let provider: CloudProvider
         switch service {
-        case .iCloudDrive, .otherApp: provider = FolderProvider(service: service)
+        case .iCloudDrive, .obsidianVault, .otherApp: provider = FolderProvider(service: service)
+        case .amphiServer: provider = AmphiServerProvider()
         case .oneDrive: provider = OneDriveProvider()
         case .googleDrive: provider = GoogleDriveProvider()
         case .dropbox: provider = DropboxProvider()
@@ -113,7 +116,7 @@ final class SyncEngine: ObservableObject {
         case .oneDrive: return CloudCredentials.isConfigured(CloudCredentials.oneDriveClientID)
         case .googleDrive: return CloudCredentials.isConfigured(CloudCredentials.googleClientID)
         case .dropbox: return CloudCredentials.isConfigured(CloudCredentials.dropboxAppKey)
-        case .iCloudDrive, .webDAV, .otherApp: return true
+        case .iCloudDrive, .obsidianVault, .amphiServer, .webDAV, .otherApp: return true
         }
     }
 
@@ -188,10 +191,13 @@ final class SyncEngine: ObservableObject {
         let remoteFiles = remoteItems.filter { !$0.isFolder && $0.name.hasSuffix(".\(NotebookArchive.fileExtension)") }
         let remoteByID = Dictionary(remoteFiles.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var takenNames = Set(remoteItems.map { $0.name.lowercased() })
-        var handled = Set<String>()
+        // Files we've synced before aren't "new". This also keeps a notebook you deleted
+        // here from coming back, while its cloud copy stays safe.
+        var handled = Set(records.values.map(\.remoteID))
 
-        // 1. Every local notebook: push, pull or resolve a conflict.
-        for notebook in store.notebooks where !notebook.isPersonalizationKit {
+        // 1. Every local notebook: push, pull or resolve a conflict. The notebook open on
+        // screen waits until you close it, and the built-in tutorial stays local.
+        for notebook in store.notebooks where notebook.id != notebookInUse && notebook.isTutorial != true {
             let record = records[notebook.id]
             let remote = record.flatMap { remoteByID[$0.remoteID] }
             let localChanged = record.map { notebook.modified.timeIntervalSince($0.localModified) > 0.5 } ?? true
@@ -227,7 +233,38 @@ final class SyncEngine: ObservableObject {
             status = .syncing("Downloading \(item.name)…")
             try await download(item, with: provider)
         }
+
+        // 3. Flashcards, study progress, subjects and the drawn theme.
+        status = .syncing("Backing up your study data…")
+        try await syncLibrary(in: remoteItems, with: provider, folder: folder)
         persist()
+    }
+
+    private func syncLibrary(in remoteItems: [RemoteItem], with provider: CloudProvider, folder: RemoteFolder) async throws {
+        let remote = remoteItems.first { !$0.isFolder && $0.name == LibraryBackup.fileName }
+        let record = records[LibraryBackup.recordID]
+        let changed = LibraryBackup.changedAt
+        let localChanged = changed.map { $0.timeIntervalSince(record?.localModified ?? .distantPast) > 0.5 } ?? false
+        let remoteChanged = remote.map { remoteModified($0).timeIntervalSince(record?.remoteModified ?? .distantPast) > 1 } ?? false
+
+        if let remote, remoteChanged {
+            let backup = try LibraryBackup.decode(try await provider.download(remote))
+            backup.restore(store: store, merging: localChanged)
+            if !localChanged {
+                // Took the cloud version as-is, so there's nothing new to send back.
+                LibraryBackup.changedAt = backup.modified
+                records[LibraryBackup.recordID] = Record(remoteID: remote.id, localModified: backup.modified,
+                                                         remoteModified: remoteModified(remote))
+                return
+            }
+            LibraryBackup.touch() // merged: send the combined library back up
+        } else if !localChanged, remote != nil {
+            return // already in sync
+        }
+
+        guard let backup = LibraryBackup.current(store: store) else { return }
+        let item = try await provider.upload(try backup.encoded(), named: LibraryBackup.fileName, to: folder, replacing: remote)
+        records[LibraryBackup.recordID] = Record(remoteID: item.id, localModified: backup.modified, remoteModified: remoteModified(item))
     }
 
     private func upload(_ notebook: Notebook, named name: String, replacing existing: RemoteItem?,

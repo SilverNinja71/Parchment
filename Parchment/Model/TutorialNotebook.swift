@@ -81,7 +81,7 @@ enum SampleInk {
                     }
                     guard points.count > 1 else { continue }
                     let strokePoints = points.enumerated().map { index, point in
-                        PKStrokePoint(location: point, timeOffset: Double(index) * 0.01, size: CGSize(width: 2, height: 2),
+                        PKStrokePoint(location: point, timeOffset: Double(index) * 0.01, size: CGSize(width: 3.5, height: 3.5),
                                       opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
                     }
                     let created = start.addingTimeInterval(Double(strokes.count) * 0.4)

@@ -74,8 +74,17 @@ final class NotebookStore: ObservableObject {
         return notebooks.filter { $0.subject == subject }
     }
 
+    /// Adds subjects from a backup, keeping any made on this device.
+    func restoreSubjects(_ subjects: [Subject]) {
+        for subject in subjects where !savedSubjects.contains(where: { $0.name == subject.name }) {
+            savedSubjects.append(subject)
+        }
+        UserDefaults.standard.set(try? JSONEncoder().encode(savedSubjects), forKey: Self.subjectsKey)
+    }
+
     private func persistSubjects() {
         UserDefaults.standard.set(try? JSONEncoder().encode(savedSubjects), forKey: Self.subjectsKey)
+        LibraryBackup.touch()
     }
 
     // MARK: - Paths

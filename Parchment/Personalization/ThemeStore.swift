@@ -75,6 +75,7 @@ final class ThemeStore: ObservableObject {
             }
         }
         load()
+        LibraryBackup.touch()
     }
 
     /// Replaces the theme with what was drawn on the kit. Empty boxes clear that item,
@@ -89,11 +90,35 @@ final class ThemeStore: ObservableObject {
             }
         }
         load()
+        LibraryBackup.touch()
     }
 
     func reset() {
         for slot in KitLayout.slots {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(slot.fileName))
+        }
+        load()
+        LibraryBackup.touch()
+    }
+
+    // MARK: - Backup
+
+    func backupImages() -> [String: Data] {
+        var images: [String: Data] = [:]
+        for slot in KitLayout.slots {
+            images[slot.fileName] = try? Data(contentsOf: folder.appendingPathComponent(slot.fileName))
+        }
+        return images
+    }
+
+    func restoreImages(_ images: [String: Data]) {
+        for slot in KitLayout.slots {
+            let url = folder.appendingPathComponent(slot.fileName)
+            if let data = images[slot.fileName] {
+                try? data.write(to: url, options: .atomic)
+            } else {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
         load()
     }

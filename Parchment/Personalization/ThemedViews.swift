@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Every icon in Parchment goes through this view: the user's hand-drawn version
+/// Every icon in BelloBook goes through this view: the user's hand-drawn version
 /// if they made one in the Personalization Kit, otherwise an SF Symbol.
 enum ThemeIcon: String {
     case pen, highlighter, eraser, lasso, convert, ruler

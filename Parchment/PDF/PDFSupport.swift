@@ -51,7 +51,7 @@ extension NotebookStore {
     func importPDF(data: Data, title: String, isPersonalizationKit: Bool = false) throws -> Notebook {
         guard let provider = CGDataProvider(data: data as CFData),
               let document = CGPDFDocument(provider), document.numberOfPages > 0 else {
-            throw ParchmentError.invalidFile("Parchment couldn't read this PDF.")
+            throw ParchmentError.invalidFile("BelloBook couldn't read this PDF.")
         }
         if document.isEncrypted && !document.isUnlocked && !document.unlockWithPassword("") {
             throw ParchmentError.invalidFile("This PDF is password protected. Remove the password and try again.")

@@ -84,6 +84,13 @@
 	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>BelloBook connects to a server or to Anki on your own network when you ask it to sync or send flashcards.</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 </dict>

@@ -329,7 +329,7 @@
       <div class="sheet-header">
         <button class="btn" id="closeSyncBtn">Done</button>
         <strong id="syncModalHeading" style="font-size:15px">One Server, Sync All (BelloBook / Amphi)</strong>
-        <button class="btn btn-primary" id="saveSyncBtn">Save &amp; Sync</button>
+        <button class="btn btn-primary" id="saveSyncBtn">Save &amp; Upload</button>
       </div>
 
       <div style="padding:20px;display:flex;flex-direction:column;gap:14px;overflow-y:auto">
@@ -342,7 +342,12 @@
             style="width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--hairline);font-size:13.5px"
           />
           <div style="font-size:12px;color:var(--muted)">
-            Syncs Notes, Media Vault, Audio Deck, and Photos through one private self-hosted server (or export a portable archive below).
+            <strong>Save &amp; Upload</strong> sends your whole library (notebooks, ink, folders, flashcards and attachments) to
+            <code>BelloBook-Library.bellobook.json</code> on your server with an HTTP <code>PUT</code>.
+            <strong>Fetch from Server</strong> reads it back and merges it in. The server must allow requests from this page (CORS).
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" id="fetchSyncBtn">Fetch from Server</button>
           </div>
           <div id="syncStatusMsg" style="font-size:12px;font-weight:600;color:var(--accent)"></div>
         </div>
@@ -350,9 +355,15 @@
         <div class="pane-card" style="flex-direction:row;align-items:center;justify-content:space-between">
           <div>
             <div style="font-size:13px;font-weight:700">Portable Library Archive</div>
-            <div style="font-size:12px;color:var(--muted)">Download all notebooks, folders &amp; attachments as JSON</div>
+            <div style="font-size:12px;color:var(--muted)">Download all notebooks, folders, flashcards &amp; attachments as JSON, or restore from one</div>
           </div>
-          <button class="btn" id="exportArchiveJsonBtn">Download .bellobook.json</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+            <button class="btn" id="exportArchiveJsonBtn">Download .bellobook.json</button>
+            <label class="btn" style="cursor:pointer">
+              Restore from File
+              <input type="file" id="importArchiveInput" accept=".json,application/json" style="display:none" />
+            </label>
+          </div>
         </div>
       </div>
     </div>

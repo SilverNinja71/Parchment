@@ -91,7 +91,7 @@ struct ConvertSheet: View {
                 .padding(10)
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: Style.controlRadius))
             if solutions.isEmpty {
-                Label("Parchment couldn't find a calculation. Use numbers with + − × ÷ ^ √ % and parentheses.",
+                Label("BelloBook couldn't find a calculation. Use numbers with + − × ÷ ^ √ % and parentheses.",
                       systemImage: "exclamationmark.triangle")
                     .font(.subheadline)
                     .foregroundStyle(.orange)

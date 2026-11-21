@@ -1,4 +1,4 @@
-/* Parchment Web & Live Work Checker — MyScript / Style.swift Design Tokens */
+/* BelloBook Web & Live Work Checker — MyScript / Style.swift Design Tokens */
 :root {
   --accent: #0A60FF;
   --selection: #007AFF;
@@ -454,6 +454,16 @@ html, body {
 
 .ink-canvas.passthrough {
   pointer-events: none;
+}
+
+/* The line rows are stacked above the canvas. While a drawing tool is active they let the pen
+   through to it; the margin badges (Fix, + Add) stay clickable. */
+.paper-sheet.drawing .work-lines-container {
+  pointer-events: none;
+}
+
+.paper-sheet.drawing .badge-slot {
+  pointer-events: auto;
 }
 
 /* Live Pen Follower Cursor Dot on Canvas */
@@ -1197,4 +1207,53 @@ mark.obsidian-mark {
 
 .anki-rate-btn:hover {
   transform: translateY(-2px);
+}
+
+/* Export PDF (window.print): just the page, without the app around it */
+@media print {
+  html, body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+
+  .top-bar,
+  .sidebar,
+  .editor-toolbar,
+  .latex-bar,
+  .floating-follower-dock,
+  .step-inspector-popover,
+  .audio-deck-bar,
+  .modal-backdrop,
+  .pen-follower-dot,
+  .line-follower-bar,
+  .badge-slot,
+  .page-status-summary {
+    display: none !important;
+  }
+
+  .app-shell,
+  .workspace,
+  .canvas-stage {
+    display: block;
+    height: auto;
+    width: auto;
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+  }
+
+  .paper-sheet {
+    width: 100%;
+    min-height: 0;
+    box-shadow: none;
+    border-radius: 0;
+    overflow: visible;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .work-line-row {
+    break-inside: avoid;
+  }
 }

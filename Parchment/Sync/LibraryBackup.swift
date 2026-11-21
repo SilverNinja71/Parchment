@@ -51,7 +51,11 @@ struct LibraryBackup: Codable {
     func restore(store: NotebookStore, merging: Bool) {
         StudyStore.shared.restore(state: study, drawings: cardDrawings, merging: merging)
         store.restoreSubjects(subjects)
-        if !merging || modified > (Self.changedAt ?? .distantPast) {
+        if !merging {
+            ThemeStore.shared.restoreImages(theme)
+        } else if !theme.isEmpty,
+                  !ThemeStore.shared.hasPersonalization || modified > (Self.changedAt ?? .distantPast) {
+            // A merge may adopt a drawn theme, but a device without one never erases yours.
             ThemeStore.shared.restoreImages(theme)
         }
     }

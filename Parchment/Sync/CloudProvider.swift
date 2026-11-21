@@ -24,7 +24,7 @@ enum CloudService: String, CaseIterable, Identifiable, Codable {
     var subtitle: String {
         switch self {
         case .iCloudDrive: return "Recommended. Uses the Apple Account on this iPad"
-        case .obsidianVault: return "Sync Markdown, [[Wiki-Links]], callouts & LaTeX with an Obsidian vault"
+        case .obsidianVault: return "Backs up to your vault and writes your typed notes there as Markdown"
         case .amphiServer: return "One self-hosted server syncs notes, media, audio & photos"
         case .oneDrive: return "Sign in with your Microsoft account"
         case .googleDrive: return "Sign in with your Google account"

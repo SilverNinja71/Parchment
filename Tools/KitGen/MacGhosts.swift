@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 
-/// Parchment's standard look, drawn faintly in each box: SF Symbols and the system serif.
+/// BelloBook's standard look, drawn faintly in each box: SF Symbols and the system serif.
 let ghosts = KitGhosts(
     symbol: { name in
         guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?

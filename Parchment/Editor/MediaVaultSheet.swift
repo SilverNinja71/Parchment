@@ -45,7 +45,7 @@ struct MediaVaultSheet: View {
                     ContentUnavailableView {
                         Label("Media & File Vault", systemImage: "tray.full")
                     } description: {
-                        Text("Attach photos, audio tracks, voice notes, videos, or documents to this page. Everything stays private on your device and syncs with your server.")
+                        Text("Attach photos, audio tracks, voice notes, videos, or documents to this page. Everything stays private on your device and travels with the notebook when you sync or share it.")
                     } actions: {
                         Button("Attach File, Photo, or Audio") { importing = true }
                             .buttonStyle(.borderedProminent)
@@ -133,7 +133,12 @@ struct MediaVaultSheet: View {
 
             if item.kind == .audio {
                 Button {
-                    deck.play(attachment: item, notebookID: notebookID)
+                    // The track that's already loaded pauses and resumes; any other starts playing.
+                    if deck.currentItem?.id == item.id {
+                        deck.togglePlayPause()
+                    } else {
+                        deck.play(attachment: item, notebookID: notebookID)
+                    }
                 } label: {
                     Image(systemName: deck.currentItem?.id == item.id && deck.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.title2)
@@ -181,6 +186,7 @@ struct MediaVaultSheet: View {
     private func deleteItems(at offsets: IndexSet) {
         let toDelete = offsets.map { attachments[$0] }
         for item in toDelete {
+            AudioDeck.shared.remove(id: item.id)
             MediaVault.shared.remove(item, from: notebookID)
             store.updatePage(pageID, in: notebookID) { page in
                 page.attachments?.removeAll { $0.id == item.id }
@@ -210,7 +216,8 @@ private struct QuickAttachmentPreviewSheet: View {
                     .background(Color.paper)
                 } else if url.pathExtension.lowercased() == "pdf", let pdfDoc = PDFDocument(url: url) {
                     PDFKitPreviewView(document: pdfDoc)
-                } else if let text = try? String(contentsOf: url, encoding: .utf8) {
+                } else if attachment.kind == .file, attachment.byteCount <= 2_000_000,
+                          let text = try? String(contentsOf: url, encoding: .utf8) {
                     ScrollView {
                         Text(text)
                             .font(.system(.body, design: .monospaced))

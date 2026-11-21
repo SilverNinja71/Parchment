@@ -181,6 +181,6 @@ final class EditorModel: ObservableObject {
     func clearWorkCheck() {
         workCheckResult = nil
         pageWorkResults = []
-        followerState.phase = .idle
+        followerState = WorkFollowerState()
     }
 }

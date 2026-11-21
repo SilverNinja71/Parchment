@@ -151,7 +151,8 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
 
         if editorTool != currentTool {
             editor?.livePreview = nil
-            editor?.clearWorkCheck()
+            // Hide the pill only. The badges on the page stay, and so must the results behind them.
+            editor?.workCheckResult = nil
         }
         currentTool = editorTool
         let converting = editorTool.circlesInk
@@ -332,6 +333,12 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
         needsSave = true
         scheduleSave()
         updateUndoState()
+
+        // Work Checker results point at strokes by position. The ink just changed underneath
+        // them (a fix, a conversion, undo or redo), so drop them and check the page again.
+        editor?.clearWorkCheck()
+        workAnnotationLayer.update(results: [], follower: WorkFollowerState())
+        scheduleWorkCheck()
     }
 
     private func growPageIfNeeded() {
@@ -573,21 +580,36 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
 
         workCheckTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let results = await WorkChecker.checkPage(
+            let checked = await WorkChecker.checkPage(
                 strokes: strokes,
                 textBlocks: blocks,
                 pageID: page.id,
                 language: language,
                 cache: &localCache
             )
+            // Recognised lines are keyed by their strokes, so they stay valid even if this pass
+            // has been overtaken; keeping them saves reading the same handwriting again.
+            self.workLineCache.merge(localCache) { _, new in new }
             guard !Task.isCancelled, self.canvasView.drawing.strokes.count == strokeCount else { return }
-            self.workLineCache = localCache
+
+            // An answer already written beside a handwritten line ("+ Add") settles that line:
+            // don't offer to add it again on top of itself.
+            let results = checked.filter { result in
+                guard result.isEvaluated, result.textBlockID == nil else { return true }
+                return !blocks.contains { block in
+                    block.text.hasPrefix("=")
+                        && abs(CGFloat(block.y) - result.bounds.minY) < 18
+                        && CGFloat(block.x) >= result.bounds.maxX - 8
+                }
+            }
 
             let actionable = results.filter { $0.status != .inconclusive }
             // Prefer highlighting any slip or the most recently written line's result
             let focusResult: WorkVerificationResult?
             if let activeBand = editor.followerState.activeBand,
-               let matching = actionable.last(where: { $0.bounds.insetBy(dx: -20, dy: -20).intersects(activeBand) }) {
+               let matching = actionable
+                   .filter({ $0.bounds.insetBy(dx: -20, dy: -6).intersects(activeBand) })
+                   .min(by: { abs($0.bounds.midY - activeBand.midY) < abs($1.bounds.midY - activeBand.midY) }) {
                 focusResult = matching
             } else {
                 focusResult = actionable.last(where: \.isSlip) ?? actionable.last
@@ -609,23 +631,54 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
 
     func applyWorkCheckCorrection(_ result: WorkVerificationResult, correction: String) {
         guard let page, result.pageID == page.id else { return }
+
+        // A result names its strokes by position. If the ink has changed since the check, those
+        // positions may now be other strokes: check again rather than fix the wrong ink.
+        if !result.strokeIndices.isEmpty {
+            let strokes = canvasView.drawing.strokes
+            guard result.strokeIndices.allSatisfy({ $0 < strokes.count }) else {
+                scheduleWorkCheck()
+                return
+            }
+            let current = result.strokeIndices.reduce(CGRect.null) { $0.union(strokes[$1].renderBounds) }
+            guard current.insetBy(dx: -1, dy: -1).contains(result.bounds),
+                  result.bounds.insetBy(dx: -1, dy: -1).contains(current) else {
+                scheduleWorkCheck()
+                return
+            }
+        }
         editor?.workCheckResult = nil
 
-        // 1. If the checked line came from a typed TextBlock, update that TextBlock directly
+        // What the line should read once the correction is applied.
+        let raw = result.rawText.trimmingCharacters(in: .whitespaces)
+        let stem = raw.replacingOccurrences(of: "\\s*=\\s*\\??$", with: "", options: .regularExpression)
+        let fixedLine: String
+        if result.isSlip {
+            if result.category == .writingStyle || correction.contains("=") {
+                fixedLine = correction                       // a whole corrected line
+            } else if let equals = stem.firstIndex(of: "=") {
+                let lhs = stem[..<equals].trimmingCharacters(in: .whitespaces)
+                fixedLine = lhs.isEmpty ? "= \(correction)" : "\(lhs) = \(correction)"
+            } else {
+                fixedLine = correction                       // a step with no "=": the step itself
+            }
+        } else if correction.contains("=") {
+            fixedLine = raw + "\n" + correction              // "x = 4" goes under the equation
+        } else {
+            fixedLine = "\(stem) = \(correction)"
+        }
+
+        // 1. A typed line: rewrite that line of its text block, and only that line
         if let blockID = result.textBlockID,
            let blockIndex = page.textBlocks.firstIndex(where: { $0.id == blockID }) {
             var updatedBlocks = page.textBlocks
-            let oldText = updatedBlocks[blockIndex].text
-            let newLineText: String
-            if result.category == .writingStyle || correction.contains("=") {
-                newLineText = correction
-            } else if result.isSlip, result.rawText.contains("=") {
-                let lhs = result.rawText.components(separatedBy: "=").first?.trimmingCharacters(in: .whitespaces) ?? result.rawText
-                newLineText = "\(lhs) = \(correction)"
-            } else {
-                newLineText = "\(result.rawText) = \(correction)"
+            var lines = updatedBlocks[blockIndex].text.components(separatedBy: "\n")
+            guard let lineIndex = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == raw }) else {
+                scheduleWorkCheck()
+                return
             }
-            updatedBlocks[blockIndex].text = oldText.replacingOccurrences(of: result.rawText, with: newLineText)
+            lines[lineIndex] = fixedLine
+            updatedBlocks[blockIndex].text = lines.joined(separator: "\n")
             updatedBlocks[blockIndex].height = paragraphHeight(updatedBlocks[blockIndex])
             applyEdit(drawing: canvasView.drawing, textBlocks: updatedBlocks, actionName: "Fix Work")
             Style.tap()
@@ -633,22 +686,23 @@ final class PageCanvasController: NSObject, PKCanvasViewDelegate, UIPencilIntera
             return
         }
 
-        // 2. If it's a style guide fix or full-equation algebraic fix on handwritten strokes, convert that line to the clean corrected text block
-        if result.isSlip && (result.category == .writingStyle || correction.contains("=")) && !result.strokeIndices.isEmpty {
+        // 2. A slip in handwriting: swap the ink for the corrected line. Writing the right
+        //    answer beside the wrong ink would leave the slip standing.
+        if result.isSlip, !result.strokeIndices.isEmpty {
             applyConversion(ConversionRequest(
                 pageID: page.id,
                 strokeIndices: result.strokeIndices,
                 bounds: result.bounds,
-                text: correction,
+                text: fixedLine,
                 mode: result.category == .writingStyle ? .text : .math
             ))
             scheduleWorkCheck()
             return
         }
 
-        // 3. Otherwise, write "= correction" cleanly right beside the handwritten expression
+        // 3. Handwriting that is right so far: keep the ink and write the answer beside it
         let fontSize = min(44, max(16, result.bounds.height * 0.55))
-        let text = correction.hasPrefix("=") ? correction : "= " + correction
+        let text = correction.contains("=") ? correction : "= " + correction
         let block = TextBlock(
             text: text,
             x: result.bounds.maxX + 12,

@@ -175,6 +175,7 @@ final class NotebookStore: ObservableObject {
 
     func delete(_ id: UUID) {
         try? fileManager.removeItem(at: folder(for: id))
+        try? fileManager.removeItem(at: MediaVault.shared.folder(for: id))
         notebooks.removeAll { $0.id == id }
     }
 
@@ -216,6 +217,14 @@ final class NotebookStore: ObservableObject {
         let pdf = notebook.hasPDF ? try? Data(contentsOf: pdfURL(for: id)) : nil
         var archive = NotebookArchive(notebook: notebook, drawings: drawings, pdf: pdf)
         archive.coverImage = notebook.hasCoverImage == true ? coverImageData(for: id) : nil
+        // Media Vault files live outside the notebook folder; without them a synced or shared
+        // notebook would list attachments it doesn't have.
+        var media: [String: Data] = [:]
+        for attachment in notebook.pages.flatMap({ $0.attachments ?? [] }) {
+            let url = MediaVault.shared.fileURL(for: attachment, in: id)
+            if let data = try? Data(contentsOf: url) { media[url.lastPathComponent] = data }
+        }
+        archive.media = media.isEmpty ? nil : media
         return try archive.encoded()
     }
 
@@ -236,6 +245,11 @@ final class NotebookStore: ObservableObject {
         }
         if let pdf = archive.pdf { try attachPDF(pdf, to: notebook.id) }
         if let cover = archive.coverImage { try cover.write(to: coverImageURL(for: notebook.id), options: .atomic) }
+        for (name, data) in archive.media ?? [:] {
+            let safeName = MediaVault.safeFileName(name, fallback: "")
+            guard !safeName.isEmpty else { continue }
+            try data.write(to: MediaVault.shared.folder(for: notebook.id).appendingPathComponent(safeName), options: .atomic)
+        }
         write(notebook)
         return notebook
     }

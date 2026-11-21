@@ -24,7 +24,7 @@ struct OAuthTokens: Codable {
 /// OAuth 2.0 sign-in with PKCE using Apple's secure web sign-in sheet.
 ///
 /// The user signs in on the provider's own page (Microsoft, Google, Dropbox), so
-/// Parchment never sees their password. Tokens are kept in the Keychain.
+/// BelloBook never sees their password. Tokens are kept in the Keychain.
 @MainActor
 final class OAuthClient {
     let configuration: OAuthConfiguration

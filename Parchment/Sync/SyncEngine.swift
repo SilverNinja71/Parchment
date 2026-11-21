@@ -234,17 +234,71 @@ final class SyncEngine: ObservableObject {
             try await download(item, with: provider)
         }
 
-        // 3. Flashcards, study progress, subjects and the drawn theme.
+        // 3. An Obsidian vault also gets each notebook's typed text as a Markdown note.
+        if provider.service == .obsidianVault {
+            try await writeMarkdownNotes(in: remoteItems, with: provider, folder: folder)
+        }
+
+        // 4. Flashcards, study progress, subjects and the drawn theme.
         status = .syncing("Backing up your study data…")
         try await syncLibrary(in: remoteItems, with: provider, folder: folder)
         persist()
+    }
+
+    private static let markdownNotesKey = "sync.obsidianNotes"
+
+    /// Writes each notebook's typed text into an Obsidian vault as "<title>.md", next to its
+    /// `.parchment` backup. This is one way: a note is rewritten when its notebook changes.
+    /// Only notes BelloBook wrote are ever replaced, so a note of your own that happens to share
+    /// a notebook's name is left alone.
+    private func writeMarkdownNotes(in remoteItems: [RemoteItem], with provider: CloudProvider, folder: RemoteFolder) async throws {
+        let notes = remoteItems.filter { !$0.isFolder && $0.name.lowercased().hasSuffix(".md") }
+        var taken = Set(remoteItems.map { $0.name.lowercased() })
+        // Notebook ID → the note this iPad wrote for it.
+        var written = UserDefaults.standard.dictionary(forKey: Self.markdownNotesKey) as? [String: String] ?? [:]
+        defer { UserDefaults.standard.set(written, forKey: Self.markdownNotesKey) }
+
+        for notebook in store.notebooks
+        where notebook.id != notebookInUse && notebook.isTutorial != true && !notebook.isPersonalizationKit {
+            let key = notebook.id.uuidString
+            let baseName = NotebookStore.safeFileName(notebook.title)
+            var existing = written[key].flatMap { name in notes.first { $0.name == name } }
+            if existing == nil,
+               let candidate = notes.first(where: { $0.name.caseInsensitiveCompare("\(baseName).md") == .orderedSame }),
+               let data = try? await provider.download(candidate),
+               ObsidianVaultSync.notebookID(inFrontmatterOf: String(decoding: data, as: UTF8.self)) == notebook.id {
+                // Written for this notebook before (by another iPad, or before a reinstall).
+                existing = candidate
+            }
+            if let existing, let modified = existing.modified, modified.timeIntervalSince(notebook.modified) > -1 {
+                written[key] = existing.name
+                continue // the note is already up to date
+            }
+
+            var name = existing?.name ?? "\(baseName).md"
+            if existing == nil {
+                var counter = 2
+                while taken.contains(name.lowercased()) {
+                    name = "\(baseName) \(counter).md"
+                    counter += 1
+                }
+            }
+            status = .syncing("Writing \(name)…")
+            let data = Data(ObsidianVaultSync.markdown(for: notebook).utf8)
+            let item = try await provider.upload(data, named: name, to: folder, replacing: existing)
+            taken.insert(name.lowercased())
+            written[key] = item.name
+        }
     }
 
     private func syncLibrary(in remoteItems: [RemoteItem], with provider: CloudProvider, folder: RemoteFolder) async throws {
         let remote = remoteItems.first { !$0.isFolder && $0.name == LibraryBackup.fileName }
         let record = records[LibraryBackup.recordID]
         let changed = LibraryBackup.changedAt
-        let localChanged = changed.map { $0.timeIntervalSince(record?.localModified ?? .distantPast) > 0.5 } ?? false
+        // The first sync with a place has no common starting point, so it merges: flashcards
+        // and study progress made before this device ever synced are kept, not replaced.
+        let localChanged = record == nil
+            || (changed.map { $0.timeIntervalSince(record?.localModified ?? .distantPast) > 0.5 } ?? false)
         let remoteChanged = remote.map { remoteModified($0).timeIntervalSince(record?.remoteModified ?? .distantPast) > 1 } ?? false
 
         if let remote, remoteChanged {

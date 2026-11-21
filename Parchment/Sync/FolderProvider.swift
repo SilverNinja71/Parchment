@@ -4,7 +4,7 @@ import Foundation
 /// Synology Drive, Nextcloud app…) through the Files app's folder picker.
 ///
 /// Signing in happens in the system (Settings → Apple Account, or the provider's own app);
-/// Parchment just remembers the folder you picked with a security-scoped bookmark.
+/// BelloBook just remembers the folder you picked with a security-scoped bookmark.
 @MainActor
 final class FolderProvider: CloudProvider {
     let service: CloudService

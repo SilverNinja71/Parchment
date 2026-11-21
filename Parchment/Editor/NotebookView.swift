@@ -27,8 +27,12 @@ struct NotebookView: View {
     /// A page to open to (set by search before navigating here).
     static var pendingPages: [UUID: UUID] = [:]
 
-    init(notebookID: UUID) {
+    /// Opens another notebook (a [[wiki-link]] or backlink in the Textbook view).
+    private let onOpenNotebook: (UUID) -> Void
+
+    init(notebookID: UUID, onOpenNotebook: @escaping (UUID) -> Void = { _ in }) {
         self.notebookID = notebookID
+        self.onOpenNotebook = onOpenNotebook
         // Open the PDF up front so the first page and thumbnails render with it.
         _editor = StateObject(wrappedValue: EditorModel(pdfDocument: NotebookStore.shared.pdfDocument(for: notebookID)))
     }
@@ -77,7 +81,8 @@ struct NotebookView: View {
         }
         .onDisappear {
             editor.canvas?.saveNow()
-            SyncEngine.shared.notebookInUse = nil
+            // Going straight to another notebook, its onAppear may already have claimed this.
+            if SyncEngine.shared.notebookInUse == notebookID { SyncEngine.shared.notebookInUse = nil }
             SyncEngine.shared.syncIfAutomatic()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -118,8 +123,10 @@ struct NotebookView: View {
         .sheet(isPresented: $showTextbookPreview) {
             if let notebook {
                 TextbookPreviewSheet(notebook: notebook) { linkedTitle in
-                    if let target = store.notebooks.first(where: { $0.title.caseInsensitiveCompare(linkedTitle) == .orderedSame }) {
-                        currentPageID = target.pages.first?.id
+                    if let target = store.notebooks.first(where: { $0.title.caseInsensitiveCompare(linkedTitle) == .orderedSame }),
+                       target.id != notebookID {
+                        editor.canvas?.saveNow()
+                        onOpenNotebook(target.id)
                     }
                 }
             }
@@ -185,7 +192,7 @@ struct NotebookView: View {
                 }
 
                 if let preview = editor.livePreview, editor.tool == .pen {
-                    // Live Text: what Parchment read from the line you're writing.
+                    // Live Text: what BelloBook read from the line you're writing.
                     HStack(spacing: 12) {
                         Image(systemName: "text.viewfinder").foregroundStyle(Style.selection)
                         Text(preview.text).lineLimit(1).font(.body)

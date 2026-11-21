@@ -142,7 +142,7 @@ public struct WorkLineCluster: Equatable {
 
 // MARK: - Work Checker Engine
 
-/// On-device work follower and step-by-step checker for Parchment.
+/// On-device work follower and step-by-step checker for BelloBook.
 ///
 /// Tracks what the user writes across the entire page, clusters strokes into lines,
 /// verifies multi-step algebraic derivations, chained equalities, arithmetic, units,
@@ -241,6 +241,8 @@ public enum WorkChecker {
         guard !clusters.isEmpty else { return [] }
 
         for i in clusters.indices {
+            // A newer pass has replaced this one: stop reading handwriting for it.
+            if Task.isCancelled { return [] }
             if let direct = clusters[i].recognizedText {
                 cache[clusters[i].fingerprint] = direct
                 continue
@@ -263,6 +265,12 @@ public enum WorkChecker {
             }
         }
 
+        return checkLines(clusters, pageID: pageID)
+    }
+
+    /// Checks recognized lines from top to bottom, carrying each derivation's context from one
+    /// line to the next.
+    static func checkLines(_ clusters: [WorkLineCluster], pageID: UUID) -> [WorkVerificationResult] {
         var results: [WorkVerificationResult] = []
         var previousMathLine: String? = nil
 
@@ -280,13 +288,27 @@ public enum WorkChecker {
                 previousLineText: previousMathLine
             )
             results.append(result)
-
-            if isMathLike(text) {
-                previousMathLine = text
-            }
+            previousMathLine = nextContext(after: text, result: result, previous: previousMathLine)
         }
 
         return results
+    }
+
+    /// The line the next one is checked against.
+    ///
+    /// A step that was flagged, or that gives only one of several solutions, keeps the line above
+    /// as context, so one slip doesn't make every later line look wrong. Prose, or a finished
+    /// answer ("x = 4"), ends the derivation: what follows is a new problem.
+    static func nextContext(after text: String, result: WorkVerificationResult, previous: String?) -> String? {
+        guard isMathLike(text) else { return nil }
+        if let previous {
+            if result.isSlip, result.category == .algebra || result.category == .simplification {
+                return previous
+            }
+            if AlgebraicEngine.isPartialSolution(text, of: previous) { return previous }
+        }
+        if AlgebraicEngine.isSolvedForm(text) { return nil }
+        return text
     }
 
     /// Single-drawing entry point for checking one line or selection against an optional previous line.
@@ -362,6 +384,20 @@ public enum WorkChecker {
             }
         }
 
+        // 1b. A list of solutions ("x = 2 or x = 3", "x = ±4") checked against the equation above it
+        if let prev = effectivePrevious,
+           let listRes = checkSolutionList(
+            line: latestLine,
+            previousLine: prev,
+            pageID: pageID,
+            lineIndex: lineIndex,
+            strokeIndices: strokeIndices,
+            textBlockID: textBlockID,
+            bounds: bounds
+           ) {
+            return listRes
+        }
+
         // 2. Line contains "=" (chained equalities, arithmetic equations, or algebraic equations)
         if latestLine.contains("="), !latestLine.hasPrefix("=") {
             if let eqRes = checkEquationOrChain(
@@ -379,7 +415,7 @@ public enum WorkChecker {
 
         // 3. Multi-step continuity without "=" (e.g. Step 1: "30 + 12", Step 2: "42", or polynomial expansion)
         if let prev = effectivePrevious?.trimmingCharacters(in: .whitespaces),
-           !prev.isEmpty, prev != latestLine, isMathLike(prev), isMathLike(latestLine) {
+           !prev.isEmpty, prev != latestLine, startsCalculation(prev), isMathLike(latestLine) {
             if let stepRes = checkStepTransition(
                 previous: prev,
                 current: latestLine,
@@ -454,6 +490,7 @@ public enum WorkChecker {
             let first = unpacked[0]
             let firstExprPretty = AlgebraicEngine.pretty(segments[0])
             let expectedStr = AlgebraicEngine.formatValue(first.value, unit: first.unit)
+            var roundedAnswer = false
 
             for idx in 1..<unpacked.count {
                 let current = unpacked[idx]
@@ -469,18 +506,46 @@ public enum WorkChecker {
                     )
                 }
 
-                // Compare values (in base units if units are present, or direct numbers)
-                let lhsVal = first.baseUnit != nil ? first.baseValue : first.value
-                let rhsVal = current.baseUnit != nil ? current.baseValue : current.value
+                // Compare in base units when both sides carry a unit; a bare number is read
+                // in the first segment's unit ("50 cm + 50 cm = 100").
+                let bothUnits = first.baseUnit != nil && current.baseUnit != nil
+                let lhsVal = bothUnits ? first.baseValue : first.value
+                let rhsVal = bothUnits ? current.baseValue : current.value
                 let tolerance = max(1e-6, abs(lhsVal) * 1e-6)
 
                 if abs(lhsVal - rhsVal) > tolerance {
+                    // The right answer in the unit this segment was written in ("2 km = 2000 m").
+                    var expectedHere = first.value
+                    var expectedHereStr = expectedStr
+                    if bothUnits, abs(current.value) > 1e-12 {
+                        expectedHere = first.baseValue / (current.baseValue / current.value)
+                        expectedHereStr = AlgebraicEngine.formatValue(expectedHere, unit: current.unit)
+                    }
+                    // A decimal rounded to the places written (√2 = 1.41) is right, not a slip.
+                    if AlgebraicEngine.isRounding(segments[idx], of: expectedHere) {
+                        roundedAnswer = true
+                        continue
+                    }
+                    // "100 − 15% = 85": a percentage taken off (or added to) the number before it,
+                    // the way a calculator reads it, is also right.
+                    if let calculatorStyle = AlgebraicEngine.percentOfBase(segments[0]),
+                       abs(calculatorStyle - current.value) <= max(1e-6, abs(calculatorStyle) * 1e-6) {
+                        continue
+                    }
+                    // One quantity against a bare number can't be judged: "5m = 500" may be algebra
+                    // with m unknown, and "2 km = 2000" leaves the unit to the reader.
+                    if (first.baseUnit != nil) != (current.baseUnit != nil) {
+                        let withUnit = first.baseUnit != nil ? segments[0] : segments[idx]
+                        if withUnit.dropFirst().rangeOfCharacter(from: CharacterSet(charactersIn: "+-−")) == nil {
+                            return nil
+                        }
+                    }
                     let gotStr = AlgebraicEngine.formatValue(current.value, unit: current.unit)
                     let diagnosis = diagnoseArithmeticSlip(
                         expression: segments[idx - 1],
-                        expected: first.value,
+                        expected: expectedHere,
                         got: current.value,
-                        expectedFormatted: expectedStr,
+                        expectedFormatted: expectedHereStr,
                         gotFormatted: gotStr
                     )
                     return WorkVerificationResult(
@@ -488,40 +553,44 @@ public enum WorkChecker {
                         textBlockID: textBlockID, bounds: bounds, rawText: line,
                         normalizedExpression: "\(firstExprPretty) ≠ \(gotStr)",
                         category: .arithmetic,
-                        status: .slip(expected: expectedStr, got: gotStr, explanation: diagnosis),
+                        status: .slip(expected: expectedHereStr, got: gotStr, explanation: diagnosis),
                         message: diagnosis,
-                        suggestedCorrection: expectedStr
+                        suggestedCorrection: expectedHereStr
                     )
                 }
             }
 
             // All links in the chain are equal! Also check if it transitions from previousLine:
-            if let prev = previousLine, !prev.contains("="),
+            if let prev = previousLine, !prev.contains("="), startsCalculation(prev),
                let prevEval = AlgebraicEngine.evaluateNumericOrUnit(prev) {
                 let prevVal = prevEval.baseUnit != nil ? prevEval.baseValue : prevEval.value
                 let currVal = first.baseUnit != nil ? first.baseValue : first.value
                 if abs(prevVal - currVal) > 1e-6 {
                     let exp = AlgebraicEngine.formatValue(prevEval.value, unit: prevEval.unit)
                     let got = expectedStr
+                    // No fix is offered: which of the two lines is wrong can't be told from here.
                     let msg = "Step discrepancy: previous line equals \(exp), but this line equals \(got)"
                     return WorkVerificationResult(
                         pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
                         textBlockID: textBlockID, bounds: bounds, rawText: line,
                         normalizedExpression: line, category: .arithmetic,
                         status: .slip(expected: exp, got: got, explanation: msg),
-                        message: msg, suggestedCorrection: exp
+                        message: msg
                     )
                 }
             }
 
             let finalStr = AlgebraicEngine.formatValue(unpacked.last!.value, unit: unpacked.last!.unit)
+            let verifiedMsg = roundedAnswer
+                ? "Verified (rounded): \(firstExprPretty) ≈ \(finalStr)"
+                : "Verified: \(firstExprPretty) = \(finalStr)"
             return WorkVerificationResult(
                 pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
                 textBlockID: textBlockID, bounds: bounds, rawText: line,
-                normalizedExpression: "\(firstExprPretty) = \(finalStr)",
+                normalizedExpression: "\(firstExprPretty) \(roundedAnswer ? "≈" : "=") \(finalStr)",
                 category: .arithmetic,
-                status: .verified(detail: "Verified: \(firstExprPretty) = \(finalStr)"),
-                message: "Verified: \(firstExprPretty) = \(finalStr)"
+                status: .verified(detail: verifiedMsg),
+                message: verifiedMsg
             )
         }
 
@@ -574,17 +643,35 @@ public enum WorkChecker {
 
         // 2. Check if this line is an algebraic contradiction (e.g. "2x + 4 = 2x + 9" when simplifying "2(x + 3) = ...")
         if currentEq.isContradiction {
-            // Check if the user made a distribution or expansion slip on the right-hand side!
-            if let lhsPoly = AlgebraicEngine.polynomial(of: left, variable: v) {
-                let expectedRHS = AlgebraicEngine.formatPolynomial(lhsPoly, variable: v)
-                let msg = "Expansion slip: \(left) simplifies to \(expectedRHS), not \(right)"
+            let lhsPoly = AlgebraicEngine.polynomial(of: left, variable: v)
+            let rhsPoly = AlgebraicEngine.polynomial(of: right, variable: v)
+
+            // A quadratic that never reaches zero (x² + 1 = 0) is a fair equation, not a slip.
+            if let lhsPoly, let rhsPoly, !AlgebraicEngine.differByConstant(lhsPoly, rhsPoly) {
+                let msg = "Tracking equation (no real solutions)"
                 return WorkVerificationResult(
                     pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
                     textBlockID: textBlockID, bounds: bounds, rawText: rawText,
                     normalizedExpression: rawText, category: .algebra,
-                    status: .slip(expected: expectedRHS, got: right, explanation: msg),
+                    status: .verified(detail: msg),
+                    message: msg
+                )
+            }
+
+            // An expansion written out wrongly: 2(x + 3) = 2x + 9, or the same the other way round.
+            for (bracketed, poly, other) in [(left, lhsPoly, right), (right, rhsPoly, left)] {
+                guard bracketed.contains("("), let poly else { continue }
+                let expanded = AlgebraicEngine.formatPolynomial(poly, variable: v)
+                let msg = "Expansion slip: \(bracketed) simplifies to \(expanded), not \(other)"
+                // The whole corrected line, so the fix is right whichever side has the brackets.
+                let fixedLine = bracketed == left ? "\(left) = \(expanded)" : "\(expanded) = \(right)"
+                return WorkVerificationResult(
+                    pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
+                    textBlockID: textBlockID, bounds: bounds, rawText: rawText,
+                    normalizedExpression: rawText, category: .algebra,
+                    status: .slip(expected: expanded, got: other, explanation: msg),
                     message: msg,
-                    suggestedCorrection: expectedRHS
+                    suggestedCorrection: fixedLine
                 )
             }
             let msg = "No solution: sides differ by a constant"
@@ -612,6 +699,21 @@ public enum WorkChecker {
                     let msg = isFinalSolvedForm
                         ? "Solution verified: \(v) = \(rootsList)"
                         : "Step verified (\(v) = \(rootsList))"
+                    return WorkVerificationResult(
+                        pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
+                        textBlockID: textBlockID, bounds: bounds, rawText: rawText,
+                        normalizedExpression: rawText, category: .algebra,
+                        status: .verified(detail: msg),
+                        message: msg
+                    )
+                } else if currentEq.roots.count < prevEq.roots.count,
+                          AlgebraicEngine.roots(currentEq.roots, areAmong: prevEq.roots) {
+                    // One of several solutions (x² = 16 → x = 4): right, but not the whole answer.
+                    let found = currentEq.roots.map { AlgebraicEngine.formatNumber($0) }.joined(separator: ", ")
+                    let others = prevEq.roots
+                        .filter { !AlgebraicEngine.roots([$0], areAmong: currentEq.roots) }
+                        .map { AlgebraicEngine.formatNumber($0) }.joined(separator: ", ")
+                    let msg = "Verified: \(v) = \(found) is a solution (also \(v) = \(others))"
                     return WorkVerificationResult(
                         pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
                         textBlockID: textBlockID, bounds: bounds, rawText: rawText,
@@ -669,6 +771,47 @@ public enum WorkChecker {
         return nil
     }
 
+    // MARK: - Solution Lists
+
+    /// Checks a line that lists solutions ("x = 2 or x = 3", "x = ±4") against the equation above it.
+    private static func checkSolutionList(
+        line: String,
+        previousLine: String,
+        pageID: UUID,
+        lineIndex: Int,
+        strokeIndices: [Int],
+        textBlockID: UUID?,
+        bounds: CGRect
+    ) -> WorkVerificationResult? {
+        guard let listed = AlgebraicEngine.solutionList(in: line) else { return nil }
+        let prevParts = previousLine.components(separatedBy: "=")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard prevParts.count == 2,
+              let prevEq = AlgebraicEngine.analyzeEquation(left: prevParts[0], right: prevParts[1]),
+              prevEq.variable == listed.variable, !prevEq.roots.isEmpty else { return nil }
+
+        let expected = AlgebraicEngine.formatSolutions(prevEq.roots, variable: prevEq.variable)
+        if AlgebraicEngine.sameRoots(prevEq.roots, listed.roots) {
+            let msg = "Solutions verified: \(expected)"
+            return WorkVerificationResult(
+                pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
+                textBlockID: textBlockID, bounds: bounds, rawText: line,
+                normalizedExpression: expected, category: .algebra,
+                status: .verified(detail: msg),
+                message: msg
+            )
+        }
+        let msg = "Check the solutions: \(prevParts[0]) = \(prevParts[1]) gives \(expected)"
+        return WorkVerificationResult(
+            pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
+            textBlockID: textBlockID, bounds: bounds, rawText: line,
+            normalizedExpression: line, category: .algebra,
+            status: .slip(expected: expected, got: line, explanation: msg),
+            message: msg,
+            suggestedCorrection: expected
+        )
+    }
+
     // MARK: - Step-to-Step Expression Transitions
 
     private static func checkStepTransition(
@@ -693,7 +836,9 @@ public enum WorkChecker {
             let expStr = AlgebraicEngine.formatValue(prevNum.value, unit: prevNum.unit)
             let gotStr = AlgebraicEngine.formatValue(currNum.value, unit: currNum.unit)
 
-            if abs(v1 - v2) <= tol {
+            let isRounded = abs(v1 - v2) > tol && prevNum.unit == currNum.unit
+                && AlgebraicEngine.isRounding(cleanCurr, of: prevNum.value)
+            if abs(v1 - v2) <= tol || isRounded {
                 return WorkVerificationResult(
                     pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
                     textBlockID: textBlockID, bounds: bounds, rawText: rawText,
@@ -835,6 +980,10 @@ public enum WorkChecker {
         currLeft: String, currRight: String, currEq: AlgebraicEngine.EquationAnalysis
     ) -> (expectedStep: String, explanation: String) {
         let v = prevEq.variable
+        if prevEq.roots.count > 1 {
+            let all = AlgebraicEngine.formatSolutions(prevEq.roots, variable: v)
+            return (all, "Step changes the solutions: \(prevLeft) = \(prevRight) gives \(all)")
+        }
         let expectedRoot = prevEq.roots[0]
         let expectedRootStr = AlgebraicEngine.formatNumber(expectedRoot)
         let gotRootStr = currEq.roots.first.map { AlgebraicEngine.formatNumber($0) } ?? "?"
@@ -912,7 +1061,15 @@ public enum WorkChecker {
             }
         }
 
-        let termScore = origTokens.isEmpty ? 1.0 : Double(matched.count) / Double(origTokens.count)
+        let termScore: Double
+        if origTokens.isEmpty {
+            // A short answer ("42", "x = 5") has no key terms: the answer itself must be there.
+            func compact(_ text: String) -> String { text.lowercased().filter { !$0.isWhitespace } }
+            let wanted = compact(originalText)
+            termScore = !wanted.isEmpty && compact(attemptText).contains(wanted) ? 1.0 : 0.0
+        } else {
+            termScore = Double(matched.count) / Double(origTokens.count)
+        }
         let penalty = Double(slips.count) * 0.15
         let accuracy = max(0.0, min(1.0, termScore - penalty))
 
@@ -927,7 +1084,9 @@ public enum WorkChecker {
 
         let pct = Int((accuracy * 100).rounded())
         let feedback: String
-        if slips.isEmpty && missed.isEmpty {
+        if origTokens.isEmpty {
+            feedback = accuracy >= 0.88 ? "Spot on! Your answer matches." : "Your answer doesn't match the original yet."
+        } else if slips.isEmpty && missed.isEmpty {
             feedback = "Spot on! You recalled all \(matched.count) key concepts accurately."
         } else if !slips.isEmpty {
             feedback = "Recalled \(pct)% of key concepts, with \(slips.count) calculation slip\(slips.count == 1 ? "" : "s") to review."
@@ -986,6 +1145,14 @@ public enum WorkChecker {
             return true
         }
         return false
+    }
+
+    /// True for a line the next line can carry on from: an expression like "12 × 3 + 4",
+    /// not a bare number, a list number ("1.") or a date ("11/20").
+    private static func startsCalculation(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard isMathLike(trimmed), hasMathOperatorOrFunction(trimmed) else { return false }
+        return trimmed.range(of: "^[0-9]{1,2}/[0-9]{1,2}(/[0-9]{2,4})?$", options: .regularExpression) == nil
     }
 
     private static func hasMathOperatorOrFunction(_ text: String) -> Bool {
@@ -1128,6 +1295,13 @@ public enum AlgebraicEngine {
         text = text.replacingOccurrences(
             of: "([0-9.]+)\\s*%\\s*of\\s*",
             with: "($1/100)*",
+            options: .regularExpression
+        )
+        // Thousands separators ("1,000") and mixed numbers ("1 1/2" → "(1+1/2)")
+        text = MathSolver.removingGroupingCommas(text)
+        text = text.replacingOccurrences(
+            of: "(?<![0-9./])([0-9]+)\\s+([0-9]+)\\s*/\\s*([0-9]+)(?![0-9.])",
+            with: "($1+$2/$3)",
             options: .regularExpression
         )
         // Multiplication 'x' only when explicitly surrounded by spaces between numbers, e.g. "14 x 3"
@@ -1322,6 +1496,117 @@ public enum AlgebraicEngine {
         return true
     }
 
+    /// "100 - 15%" read as a calculator does: 100 less 15% of 100.
+    public static func percentOfBase(_ raw: String) -> Double? {
+        let pattern = "^\\s*([0-9]*\\.?[0-9]+)\\s*([+\\-−])\\s*([0-9]*\\.?[0-9]+)\\s*%\\s*$"
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: raw, range: NSRange(raw.startIndex..., in: raw)),
+              let baseRange = Range(match.range(at: 1), in: raw),
+              let signRange = Range(match.range(at: 2), in: raw),
+              let percentRange = Range(match.range(at: 3), in: raw),
+              let base = Double(raw[baseRange]), let percent = Double(raw[percentRange]) else { return nil }
+        let change = base * percent / 100
+        return raw[signRange] == "+" ? base + change : base - change
+    }
+
+    /// True for a finished answer: "x = 4", "4 = x", "x = 2 or x = 3".
+    public static func isSolvedForm(_ line: String) -> Bool {
+        if solutionList(in: line) != nil { return true }
+        let parts = line.components(separatedBy: "=").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        guard parts.count == 2 else { return false }
+        for (name, value) in [(parts[0], parts[1]), (parts[1], parts[0])]
+        where name.count == 1 && name.first?.isLetter == true {
+            if detectVariable(in: value) == nil, evaluate(value, variable: "x", at: 0) != nil { return true }
+        }
+        return false
+    }
+
+    /// True when `line` gives some, but not all, of the solutions of the equation in `previous`
+    /// (x² = 16, then x = 4).
+    public static func isPartialSolution(_ line: String, of previous: String) -> Bool {
+        func analysis(_ text: String) -> EquationAnalysis? {
+            let parts = text.components(separatedBy: "=").map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2 else { return nil }
+            return analyzeEquation(left: parts[0], right: parts[1])
+        }
+        guard let current = analysis(line), let before = analysis(previous),
+              current.variable == before.variable else { return false }
+        return current.roots.count < before.roots.count && roots(current.roots, areAmong: before.roots)
+    }
+
+    /// True when two polynomials differ only in their constant term.
+    public static func differByConstant(_ a: [Double], _ b: [Double]) -> Bool {
+        for power in 1..<max(a.count, b.count, 2) {
+            let va = power < a.count ? a[power] : 0
+            let vb = power < b.count ? b[power] : 0
+            if abs(va - vb) > 1e-7 { return false }
+        }
+        return true
+    }
+
+    /// True when every value in `subset` is one of `roots`.
+    public static func roots(_ subset: [Double], areAmong roots: [Double]) -> Bool {
+        !subset.isEmpty && subset.allSatisfy { value in roots.contains { abs($0 - value) < 1e-5 } }
+    }
+
+    /// "x = 2 or x = 3"
+    public static func formatSolutions(_ roots: [Double], variable: Character) -> String {
+        roots.map { "\(variable) = \(formatNumber($0))" }.joined(separator: " or ")
+    }
+
+    /// Reads a line that lists several solutions: "x = 2 or x = 3", "x = 2, 3", "x = ±4".
+    public static func solutionList(in raw: String) -> (variable: Character, roots: [Double])? {
+        let text = raw.lowercased().trimmingCharacters(in: .whitespaces)
+        let parts = text
+            .replacingOccurrences(of: "\\s+(or|and)\\s+|,\\s+|;", with: "|", options: .regularExpression)
+            .components(separatedBy: "|")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        var variable: Character?
+        var roots: [Double] = []
+        for part in parts {
+            var value = part
+            if let equals = part.firstIndex(of: "=") {
+                let name = part[..<equals].trimmingCharacters(in: .whitespaces)
+                guard name.count == 1, let letter = name.first, letter.isLetter,
+                      variable == nil || variable == letter else { return nil }
+                variable = letter
+                value = String(part[part.index(after: equals)...]).trimmingCharacters(in: .whitespaces)
+            } else if variable == nil {
+                return nil
+            }
+            var bothSigns = false
+            for prefix in ["±", "+/-", "+-"] where value.hasPrefix(prefix) {
+                bothSigns = true
+                value = String(value.dropFirst(prefix.count))
+                break
+            }
+            guard !value.contains("="), detectVariable(in: value) == nil,
+                  let number = evaluate(value, variable: "x", at: 0), number.isFinite else { return nil }
+            roots.append(number)
+            if bothSigns, abs(number) > 1e-12 { roots.append(-number) }
+        }
+        guard variable != nil, roots.count >= 2 else { return nil }
+        return (variable!, roots.sorted())
+    }
+
+    /// True when `written` is a plain decimal equal to `exact` rounded (or cut off) to the
+    /// places written, so "22/7 = 3.14" and "√2 = 1.414" count as right.
+    public static func isRounding(_ written: String, of exact: Double) -> Bool {
+        let text = written.trimmingCharacters(in: .whitespaces)
+        guard let match = text.range(of: "^-?[0-9]*[.,][0-9]+", options: .regularExpression) else { return false }
+        let unit = text[match.upperBound...].trimmingCharacters(in: .whitespaces)
+        guard unit.allSatisfy(\.isLetter) else { return false }
+        let literal = text[match].replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(literal), let point = literal.firstIndex(of: ".") else { return false }
+        let places = literal.distance(from: point, to: literal.endIndex) - 1
+        let step = pow(10.0, -Double(places))
+        let error = abs(exact - value)
+        if error <= step / 2 + 1e-9 { return true }
+        // Cut off instead of rounded (2/3 = 0.66): accept from two places on.
+        return places >= 2 && error < step && abs(value) < abs(exact) && (value < 0) == (exact < 0)
+    }
+
     private static func cleanZero(_ value: Double) -> Double {
         if abs(value - value.rounded()) < 1e-7 { return value.rounded() }
         return value
@@ -1340,7 +1625,15 @@ public enum AlgebraicEngine {
     }
 
     public static func pretty(_ raw: String) -> String {
-        MathSolver.pretty(MathSolver.normalize(raw))
+        // Keep mixed numbers ("1 1/2"), units ("5 m + 30 cm") and "15% of 80" as written;
+        // the cleanup below would run them together.
+        let asWritten = raw.trimmingCharacters(in: .whitespaces)
+        if asWritten.range(of: "(?<![0-9./])[0-9]+\\s+[0-9]+\\s*/\\s*[0-9]+", options: .regularExpression) != nil
+            || asWritten.range(of: "%\\s*of\\b", options: [.regularExpression, .caseInsensitive]) != nil
+            || evaluateWithUnits(asWritten) != nil {
+            return asWritten
+        }
+        return MathSolver.pretty(MathSolver.normalize(raw))
     }
 
     // MARK: - Recursive Descent Algebraic & Scientific Parser
@@ -1388,19 +1681,21 @@ public enum AlgebraicEngine {
             return value
         }
 
+        /// A leading minus applies to the whole power (-3^2 = -9, -x^2 = -(x^2)),
+        /// and exponents chain to the right (2^3^2 = 2^9).
         mutating func power() -> Double? {
-            guard let base = unary() else { return nil }
+            if current == "-" { index += 1; return power().map { -$0 } }
+            if current == "+" { index += 1; return power() }
+            guard let base = postfix() else { return nil }
             if current == "^" {
                 index += 1
-                guard let exponent = unary() else { return nil }
+                guard let exponent = power() else { return nil }
                 return pow(base, exponent)
             }
             return base
         }
 
-        mutating func unary() -> Double? {
-            if current == "-" { index += 1; return unary().map { -$0 } }
-            if current == "+" { index += 1; return unary() }
+        mutating func postfix() -> Double? {
             guard var value = primary() else { return nil }
             while let post = current {
                 if post == "%" {
@@ -1564,7 +1859,10 @@ public enum WritingStyleChecker {
                 : [.regularExpression]
             if let matchRange = trimmed.range(of: rule.pattern, options: options) {
                 let matchedSubstring = String(trimmed[matchRange])
-                let fixed = trimmed.replacingOccurrences(of: rule.pattern, with: rule.replacement, options: options)
+                var fixed = trimmed.replacingOccurrences(of: rule.pattern, with: rule.replacement, options: options)
+                if matchRange.lowerBound == trimmed.startIndex, matchedSubstring.first?.isUppercase == true {
+                    fixed = fixed.prefix(1).uppercased() + fixed.dropFirst()
+                }
                 return WorkVerificationResult(
                     pageID: pageID, lineIndex: lineIndex, strokeIndices: strokeIndices,
                     textBlockID: textBlockID, bounds: bounds, rawText: trimmed,

@@ -23,10 +23,16 @@ final class AmphiServerProvider: CloudProvider {
 
     func signIn(server: String, username: String, password: String) async throws {
         var address = server.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !address.lowercased().hasPrefix("http") { address = "http://" + address }
+        let lowercased = address.lowercased()
+        if !lowercased.hasPrefix("http://") && !lowercased.hasPrefix("https://") { address = "https://" + address }
         if !address.hasSuffix("/") { address += "/" }
-        guard let url = URL(string: address), url.host != nil else {
+        guard let url = URL(string: address), let host = url.host else {
             throw ParchmentError.sync("That server address doesn't look right.")
+        }
+        // The password goes out with every request, so plain http is only for a server on
+        // your own network.
+        if url.scheme?.lowercased() == "http", !Self.isOnLocalNetwork(host) {
+            throw ParchmentError.sync("Use an https:// address. Over plain http your password would travel unencrypted.")
         }
         // Verify reachability via HEAD/GET
         var request = URLRequest(url: url)
@@ -41,6 +47,14 @@ final class AmphiServerProvider: CloudProvider {
     func signOut() {
         credentials = nil
         Keychain.delete(Self.keychainKey)
+    }
+
+    /// "localhost", "ipad.local", a bare name like "nas", or a private IPv4 address.
+    static func isOnLocalNetwork(_ host: String) -> Bool {
+        let name = host.lowercased()
+        if name == "localhost" || name.hasSuffix(".local") || !name.contains(".") { return true }
+        return name.range(of: #"^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+$"#,
+                          options: .regularExpression) != nil
     }
 
     func accountName() async throws -> String {
@@ -59,16 +73,28 @@ final class AmphiServerProvider: CloudProvider {
         var request = URLRequest(url: url.appendingPathComponent("notes"))
         request.httpMethod = "GET"
         let (data, _) = try await HTTP.send(authorized(request, credentials))
-        if let decoded = try? JSONDecoder().decode([ServerFileEntry].self, from: data) {
-            return decoded.map {
-                RemoteItem(id: url.appendingPathComponent($0.path).absoluteString,
-                           name: $0.name,
-                           isFolder: $0.isFolder,
-                           modified: $0.modified,
-                           size: $0.size)
+        let decoder = JSONDecoder()
+        // Servers send dates as ISO 8601 text or as Unix time in seconds or milliseconds.
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            if let number = try? container.decode(Double.self) {
+                return Date(timeIntervalSince1970: number > 100_000_000_000 ? number / 1000 : number)
             }
+            if let date = CloudDate.parse(try container.decode(String.self)) { return date }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unrecognised date")
         }
-        return []
+        // A listing that can't be read must not pass for an empty folder: sync would then
+        // upload everything again and never download.
+        guard let entries = try? decoder.decode([ServerFileEntry].self, from: data) else {
+            throw ParchmentError.sync("The server's file list couldn't be read. Is this a BelloBook / Amphi server address?")
+        }
+        return entries.map {
+            RemoteItem(id: url.appendingPathComponent($0.path).absoluteString,
+                       name: $0.name,
+                       isFolder: $0.isFolder,
+                       modified: $0.modified,
+                       size: $0.size)
+        }
     }
 
     func createFolder(named name: String, in folder: RemoteFolder) async throws -> RemoteFolder {
@@ -76,7 +102,7 @@ final class AmphiServerProvider: CloudProvider {
         let target = url.appendingPathComponent(name)
         var request = URLRequest(url: target)
         request.httpMethod = "POST"
-        _ = try? await HTTP.send(authorized(request, credentials))
+        _ = try await HTTP.send(authorized(request, credentials))
         return folder.child(RemoteItem(id: target.absoluteString + "/", name: name, isFolder: true))
     }
 
@@ -86,8 +112,12 @@ final class AmphiServerProvider: CloudProvider {
         var request = URLRequest(url: target)
         request.httpMethod = "PUT"
         request.httpBody = data
-        _ = try await HTTP.send(authorized(request, credentials))
-        return RemoteItem(id: target.absoluteString, name: name, isFolder: false, modified: Date(), size: data.count)
+        let (_, response) = try await HTTP.send(authorized(request, credentials))
+        // Stamp the upload with the server's clock: the next listing is compared with it, and
+        // this iPad's clock may differ.
+        let stamp = CloudDate.parse(response.value(forHTTPHeaderField: "Last-Modified"))
+            ?? CloudDate.parse(response.value(forHTTPHeaderField: "Date")) ?? Date()
+        return RemoteItem(id: target.absoluteString, name: name, isFolder: false, modified: stamp, size: data.count)
     }
 
     func download(_ item: RemoteItem) async throws -> Data {

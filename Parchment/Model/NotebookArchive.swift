@@ -18,6 +18,8 @@ struct NotebookArchive: Codable {
     var pdf: Data?
     /// The notebook's imported cover image (absent in older archives).
     var coverImage: Data?
+    /// Media Vault files by file name (absent in older archives).
+    var media: [String: Data]?
 
     func encoded() throws -> Data {
         let encoder = PropertyListEncoder()
@@ -27,7 +29,7 @@ struct NotebookArchive: Codable {
 
     static func decode(_ data: Data) throws -> NotebookArchive {
         let archive = try PropertyListDecoder().decode(NotebookArchive.self, from: data)
-        guard archive.magic == magic else { throw ParchmentError.invalidFile("This isn't a Parchment notebook.") }
+        guard archive.magic == magic else { throw ParchmentError.invalidFile("This isn't a BelloBook notebook.") }
         return archive
     }
 }

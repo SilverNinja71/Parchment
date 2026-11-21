@@ -3,7 +3,7 @@ import PencilKit
 import CoreText
 
 extension NotebookStore {
-    /// Builds the hands-on "Welcome to Parchment" notebook shown on first launch.
+    /// Builds the hands-on "Welcome to BelloBook" notebook shown on first launch.
     @discardableResult
     func createTutorialNotebook() -> Notebook {
         func page(_ paper: PaperStyle, title: String, body: String) -> Page {
@@ -23,14 +23,14 @@ extension NotebookStore {
                  body: "Select the Convert tool, circle the sentence below with your Pencil, "
                      + "and tap Convert to see it turn into typeset text. Undo brings your ink back."),
             page(.dottedLined, title: "3 · Paper Styles",
-                 body: "Parchment has five papers: Lined, Grid, Dotted, Blank and Dotted-Lined (this page). "
+                 body: "BelloBook has five papers: Lined, Grid, Dotted, Blank and Dotted-Lined (this page). "
                      + "Dotted-Lined adds a dashed midline for neat handwriting. Open ••• › Paper Style… to try them all."),
             page(.ruled, title: "4 · Make It Yours",
                  body: "Tap the palette button at the top to customize this cover: colors, finishes, "
                      + "the Cover Library or your own photo. Long-press any notebook in the library to change its cover whenever you like."),
         ]
 
-        var notebook = Notebook(title: "Welcome to Parchment", pages: pages)
+        var notebook = Notebook(title: "Welcome to BelloBook", pages: pages)
         notebook.coverDesign = "sunset-gradient"
         notebook.isTutorial = true
         save(notebook)

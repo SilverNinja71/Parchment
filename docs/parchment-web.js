@@ -1,4 +1,4 @@
-// Parchment Web Studio & Live Work Follower Engine
+// BelloBook Web Studio & Live Work Follower Engine
 // 100% client-side, offline-first JavaScript port of Parchment/Editor/WorkChecker.swift
 // Adheres strictly to Parchment/App/Style.swift and CONTRIBUTING.md.
 
@@ -56,7 +56,9 @@
       if (variable !== "x") {
         s = s.replace(/(?<=[0-9)])\s+[xX]\s+(?=[0-9(])/g, " * ");
       }
-      s = s.replace(/(?<=[0-9),(])\s+(?=[0-9]+\/[0-9]+)/g, "+");
+      // Thousands separators ("1,000") and mixed numbers ("1 1/2" -> "(1+1/2)")
+      s = s.replace(/(?<=[0-9]),(?=[0-9]{3}(?![0-9]))/g, "");
+      s = s.replace(/(?<![0-9./])([0-9]+)\s+([0-9]+)\s*\/\s*([0-9]+)(?![0-9.])/g, "($1+$2/$3)");
       return s;
     },
 
@@ -276,12 +278,15 @@
             arg = parseUnary();
           }
           if (arg === null) return null;
+          // Angles such as 30, 45, 90 or anything past 2π are read as degrees.
+          const radians = (commonDegrees) =>
+            Math.abs(arg) > 2 * Math.PI || commonDegrees.includes(Math.abs(arg)) ? (arg * Math.PI) / 180 : arg;
           switch (name) {
             case "sqrt": return arg >= 0 ? Math.sqrt(arg) : null;
             case "cbrt": return Math.cbrt(arg);
-            case "sin": return Math.sin(arg);
-            case "cos": return Math.cos(arg);
-            case "tan": return Math.tan(arg);
+            case "sin": return Math.sin(radians([30, 45, 60, 90, 120, 135, 150, 180, 270, 360]));
+            case "cos": return Math.cos(radians([30, 45, 60, 90, 120, 135, 150, 180, 270, 360]));
+            case "tan": return Math.tan(radians([30, 45, 60, 120, 135, 150, 180, 360]));
             case "asin": return Math.abs(arg) <= 1 ? Math.asin(arg) : null;
             case "acos": return Math.abs(arg) <= 1 ? Math.acos(arg) : null;
             case "atan": return Math.atan(arg);
@@ -300,19 +305,127 @@
       return res;
     },
 
+    unitTable: {
+      mm: [0.001, "len"], cm: [0.01, "len"], m: [1.0, "len"], km: [1000.0, "len"],
+      in: [0.0254, "len"], ft: [0.3048, "len"],
+      mg: [0.001, "mass"], g: [1.0, "mass"], kg: [1000.0, "mass"],
+      ms: [0.001, "time"], s: [1.0, "time"], sec: [1.0, "time"], min: [60.0, "time"], hr: [3600.0, "time"], h: [3600.0, "time"],
+      ml: [0.001, "vol"], l: [1.0, "vol"]
+    },
+
+    // "5 m" or "5 m + 30 cm": the value in the first unit, and what it comes to in base units.
+    evaluateQuantity(raw) {
+      const m = raw.trim().match(/^(-?[0-9]*\.?[0-9]+)\s*([a-zA-Z]+)(?:\s*([+\-−])\s*([0-9]*\.?[0-9]+)\s*([a-zA-Z]+))?$/);
+      if (!m) return null;
+      const unit = m[2].toLowerCase();
+      const first = this.unitTable[unit];
+      if (!first) return null;
+      let baseValue = parseFloat(m[1]) * first[0];
+      if (m[3]) {
+        const second = this.unitTable[m[5].toLowerCase()];
+        if (!second || second[1] !== first[1]) return null;
+        const added = parseFloat(m[4]) * second[0];
+        baseValue = m[3] === "+" ? baseValue + added : baseValue - added;
+      }
+      return { value: baseValue / first[0], unit, factor: first[0], baseValue, dimension: first[1] };
+    },
+
+    // A segment of a numeric chain: a quantity with units, or a plain number/expression.
+    evaluateSegment(raw) {
+      const quantity = this.evaluateQuantity(raw);
+      if (quantity) return quantity;
+      let value = this.evaluateConstant(raw);
+      if (value === null) {
+        const tokens = this.tokenize(raw, null);
+        value = tokens ? this.evaluateTokens(tokens, 0) : null;
+      }
+      return value === null ? null : { value, unit: null, factor: 1, baseValue: value, dimension: null };
+    },
+
+    // True when `written` is a plain decimal equal to `exact` rounded (or cut off) to the places
+    // written, so "22/7 = 3.14" and "sqrt(2) = 1.414" count as right.
+    isRounding(written, exact) {
+      const m = written.trim().match(/^(-?[0-9]*)[.,]([0-9]+)\s*[a-zA-Z]*$/);
+      if (!m) return false;
+      const value = parseFloat(`${m[1] || "0"}.${m[2]}`.replace(/^-\./, "-0."));
+      if (!Number.isFinite(value)) return false;
+      const places = m[2].length;
+      const step = Math.pow(10, -places);
+      const error = Math.abs(exact - value);
+      if (error <= step / 2 + 1e-9) return true;
+      // Cut off instead of rounded (2/3 = 0.66): accept from two places on.
+      return places >= 2 && error < step && Math.abs(value) < Math.abs(exact) && value < 0 === exact < 0;
+    },
+
+    // Reads a line that lists several solutions: "x = 2 or x = 3", "x = 2, 3", "x = ±4".
+    solutionList(raw) {
+      const parts = raw
+        .toLowerCase()
+        .trim()
+        .split(/\s+(?:or|and)\s+|,\s+|;/)
+        .map((p) => p.trim())
+        .filter(Boolean);
+      let variable = null;
+      const roots = [];
+      for (const part of parts) {
+        let value = part;
+        const eq = part.indexOf("=");
+        if (eq >= 0) {
+          const name = part.slice(0, eq).trim();
+          if (!/^[a-z]$/.test(name) || (variable !== null && variable !== name)) return null;
+          variable = name;
+          value = part.slice(eq + 1).trim();
+        } else if (variable === null) {
+          return null;
+        }
+        let bothSigns = false;
+        for (const prefix of ["±", "+/-", "+-"]) {
+          if (value.startsWith(prefix)) {
+            bothSigns = true;
+            value = value.slice(prefix.length);
+            break;
+          }
+        }
+        if (value.includes("=") || this.detectVariable(value) !== null) return null;
+        const tokens = this.tokenize(value, null);
+        const number = tokens ? this.evaluateTokens(tokens, 0) : null;
+        if (number === null) return null;
+        roots.push(number);
+        if (bothSigns && Math.abs(number) > 1e-12) roots.push(-number);
+      }
+      if (variable === null || roots.length < 2) return null;
+      return { variable, roots: roots.sort((a, b) => a - b) };
+    },
+
+    // "x = 2 or x = 3"
+    formatSolutions(roots, variable) {
+      return roots.map((r) => `${variable} = ${WorkChecker.formatNumber(r)}`).join(" or ");
+    },
+
+    // True when every value in `subset` is one of `roots`.
+    rootsAmong(subset, roots) {
+      return subset.length > 0 && subset.every((v) => roots.some((r) => Math.abs(r - v) < 1e-4));
+    },
+
+    // True for a finished answer: "x = 4", "4 = x", "x = 2 or x = 3".
+    isSolvedForm(line) {
+      if (this.solutionList(line)) return true;
+      const parts = line.split("=").map((p) => p.trim().toLowerCase());
+      if (parts.length !== 2) return false;
+      return [[parts[0], parts[1]], [parts[1], parts[0]]].some(([name, value]) => {
+        if (!/^[a-z]$/.test(name) || this.detectVariable(value) !== null) return false;
+        const tokens = this.tokenize(value, null);
+        return tokens !== null && this.evaluateTokens(tokens, 0) !== null;
+      });
+    },
+
     evaluateSpecialPhrase(raw) {
       const trimmed = raw.trim();
       const pctMatch = trimmed.match(/^([0-9]+(?:\.[0-9]+)?)\s*%\s*of\s*([0-9]+(?:\.[0-9]+)?)$/i);
       if (pctMatch) {
         return (parseFloat(pctMatch[1]) / 100.0) * parseFloat(pctMatch[2]);
       }
-      const unitTable = {
-        mm: [0.001, "len"], cm: [0.01, "len"], m: [1.0, "len"], km: [1000.0, "len"],
-        in: [0.0254, "len"], ft: [0.3048, "len"],
-        mg: [0.001, "mass"], g: [1.0, "mass"], kg: [1000.0, "mass"],
-        ms: [0.001, "time"], s: [1.0, "time"], sec: [1.0, "time"], min: [60.0, "time"], hr: [3600.0, "time"], h: [3600.0, "time"],
-        ml: [0.001, "vol"], l: [1.0, "vol"]
-      };
+      const unitTable = this.unitTable;
       const unitMatch = trimmed.match(/^([0-9]+(?:\.[0-9]+)?)\s*([a-zA-Z]+)\s+(?:in|to)\s+([a-zA-Z]+)$/i);
       if (unitMatch) {
         const val = parseFloat(unitMatch[1]);
@@ -422,7 +535,7 @@
         if (Math.abs(d3) < 1e-7 && Math.abs(d2) >= 1e-7) {
           const disc = d1 * d1 - 4.0 * d2 * d0;
           if (disc < -1e-7) {
-            return { variable: v, roots: [], isIdentity: false, isContradiction: true, leftPoly: lPoly, rightPoly: rPoly };
+            return { variable: v, roots: [], isIdentity: false, isContradiction: true, noRealRoots: true, leftPoly: lPoly, rightPoly: rPoly };
           }
           if (Math.abs(disc) <= 1e-7) {
             return { variable: v, roots: [-d1 / (2.0 * d2)], isIdentity: false, isContradiction: false, leftPoly: lPoly, rightPoly: rPoly };
@@ -591,9 +704,16 @@
           if (Math.abs(val - roundedFixed) < 1e-8) {
             return String(roundedFixed);
           }
-          return `${Math.round(num)}/${denom} (${val.toFixed(2)})`;
+          return `${Math.round(num)}/${denom}`;
         }
       }
+      return String(Number(val.toFixed(4)));
+    },
+
+    // A decimal answer for arithmetic ("0.6667"), where a fraction would just repeat the question.
+    formatDecimal(val) {
+      if (!Number.isFinite(val)) return "";
+      if (Math.abs(val - Math.round(val)) < 1e-9) return String(Math.round(val));
       return String(Number(val.toFixed(4)));
     },
 
@@ -605,11 +725,24 @@
       return true;
     },
 
+    // "5 m + 30 cm" -> "5.3 m" (a lone quantity such as "5 m" has nothing to work out)
+    evaluateUnitSum(raw) {
+      const quantity = AlgebraicEngine.evaluateQuantity(raw);
+      if (!quantity || !/[+\-−]/.test(raw.trim().slice(1))) return null;
+      return `${this.formatDecimal(quantity.value)} ${quantity.unit}`;
+    },
+
     diagnoseAlgebraSlip(previous, current, prevText, currText) {
       const v = current.variable;
-      let expectedAssignment = `${v} = ${this.formatNumber(previous.roots[0])}`;
+      const expectedAssignment = AlgebraicEngine.formatSolutions(previous.roots, v);
       if (previous.roots.length > 1) {
-        expectedAssignment = `${v} = ${previous.roots.map((r) => this.formatNumber(r)).join(" or ")}`;
+        return {
+          kind: "needsAttention",
+          category: "algebra",
+          message: `Step changes the solutions: '${prevText}' gives ${expectedAssignment}`,
+          expectedValue: expectedAssignment,
+          replacementText: expectedAssignment
+        };
       }
 
       if (previous.leftPoly && previous.rightPoly && current.leftPoly && current.rightPoly) {
@@ -702,6 +835,10 @@
         // 1a. Trailing '=' (e.g. "24 * 15 =" or "2(x + 3) =")
         if (endsWithEquals && nonEmpty.length >= 1) {
           const firstSeg = nonEmpty[0];
+          const unitSum = this.evaluateUnitSum(firstSeg);
+          if (unitSum) {
+            return { kind: "evaluated", category: "arithmetic", message: `${firstSeg} = ${unitSum}`, expectedValue: unitSum, replacementText: `${cleaned} ${unitSum}` };
+          }
           const constVal = AlgebraicEngine.evaluateConstant(firstSeg);
           if (constVal !== null) {
             const formatted = this.formatNumber(constVal);
@@ -731,52 +868,94 @@
           }
         }
 
-        // 1b. Two or more segments around '='
-        if (nonEmpty.length >= 2) {
-          const hasVar = nonEmpty.some((seg) => AlgebraicEngine.detectVariable(seg) !== null);
-          if (!hasVar) {
-            // Pure numerical equation or chained equality (e.g. "12 + 8 = 4 * 5 = 20")
-            const values = [];
-            for (const seg of nonEmpty) {
-              let val = AlgebraicEngine.evaluateConstant(seg);
-              if (val === null) {
-                const toks = AlgebraicEngine.tokenize(seg, null);
-                val = toks ? AlgebraicEngine.evaluateTokens(toks, 0) : null;
-              }
-              if (val === null) {
-                values.length = 0;
-                break;
-              }
-              values.push(val);
+        // 1b. A list of solutions ("x = 2 or x = 3", "x = ±4") checked against the equation above
+        const listed = AlgebraicEngine.solutionList(cleaned);
+        if (listed) {
+          if (previousStep && previousStep.variable === listed.variable && previousStep.roots.length > 0) {
+            const expected = AlgebraicEngine.formatSolutions(previousStep.roots, previousStep.variable);
+            if (this.rootsMatch(previousStep.roots, listed.roots)) {
+              return { kind: "verified", category: "algebra", message: `Solutions verified: ${expected}`, expectedValue: expected, replacementText: null };
             }
+            return {
+              kind: "needsAttention",
+              category: "algebra",
+              message: `Check the solutions: '${previousStep.rawText}' gives ${expected}`,
+              expectedValue: expected,
+              replacementText: expected
+            };
+          }
+          return { kind: "tracking", category: "general", message: `Following: "${cleaned}"`, expectedValue: null, replacementText: null };
+        }
 
-            if (values.length === nonEmpty.length) {
-              const expected = values[0];
-              for (let idx = 1; idx < values.length; idx++) {
-                if (Math.abs(values[idx] - expected) > 1e-4) {
-                  const formattedExpected = this.formatNumber(expected);
-                  const formattedWritten = this.formatNumber(values[idx]);
-                  const fixedSegments = nonEmpty.slice();
-                  fixedSegments[idx] = formattedExpected;
-                  return {
-                    kind: "needsAttention",
-                    category: "arithmetic",
-                    message: `Check arithmetic: ${nonEmpty[0]} = ${formattedExpected} (wrote ${formattedWritten})`,
-                    expectedValue: formattedExpected,
-                    replacementText: fixedSegments.join(" = ")
-                  };
+        // 1c. Two or more segments around '='
+        if (nonEmpty.length >= 2) {
+          const quantities = nonEmpty.map((seg) => AlgebraicEngine.evaluateSegment(seg));
+          if (quantities.every((q) => q !== null)) {
+            // Numbers or units all the way along (e.g. "12 + 8 = 4 * 5 = 20", "5 m + 30 cm = 5.3 m")
+            const first = quantities[0];
+            const fixedSegments = nonEmpty.slice();
+            let firstSlip = null;
+            let rounded = false;
+            let unjudged = false;
+
+            for (let idx = 1; idx < quantities.length; idx++) {
+              const current = quantities[idx];
+              if (first.unit && current.unit && first.dimension !== current.dimension) {
+                return {
+                  kind: "needsAttention",
+                  category: "arithmetic",
+                  message: `Unit mismatch: ${first.unit} vs ${current.unit}`,
+                  expectedValue: null,
+                  replacementText: null
+                };
+              }
+              // Compare in base units when both sides carry a unit; a bare number is read in
+              // the first segment's unit ("50 cm + 50 cm = 100").
+              const bothUnits = Boolean(first.unit && current.unit);
+              const lhs = bothUnits ? first.baseValue : first.value;
+              const rhs = bothUnits ? current.baseValue : current.value;
+              if (Math.abs(lhs - rhs) <= Math.max(1e-6, Math.abs(lhs) * 1e-6)) continue;
+
+              // The right answer in the unit this segment was written in ("2 km = 2000 m").
+              const expectedHere = bothUnits ? first.baseValue / current.factor : first.value;
+              if (AlgebraicEngine.isRounding(nonEmpty[idx], expectedHere)) {
+                rounded = true;
+                continue;
+              }
+              // One quantity against a bare number can't be judged: "5m = 500" may be algebra.
+              if (Boolean(first.unit) !== Boolean(current.unit)) {
+                const withUnit = first.unit ? nonEmpty[0] : nonEmpty[idx];
+                if (!/[+\-−]/.test(withUnit.slice(1))) {
+                  unjudged = true;
+                  break;
                 }
               }
-              const formattedExpected = this.formatNumber(expected);
+              const expectedText = this.formatDecimal(expectedHere) + (bothUnits ? ` ${current.unit}` : "");
+              fixedSegments[idx] = expectedText;
+              if (!firstSlip) firstSlip = { expectedText, written: nonEmpty[idx] };
+            }
+
+            if (!unjudged) {
+              if (firstSlip) {
+                return {
+                  kind: "needsAttention",
+                  category: "arithmetic",
+                  message: `Check arithmetic: ${nonEmpty[0]} = ${firstSlip.expectedText} (wrote ${firstSlip.written})`,
+                  expectedValue: firstSlip.expectedText,
+                  replacementText: fixedSegments.join(" = ")
+                };
+              }
               return {
                 kind: "verified",
                 category: "arithmetic",
-                message: `Verified: ${nonEmpty.join(" = ")}`,
-                expectedValue: formattedExpected,
+                message: rounded
+                  ? `Verified (rounded): ${nonEmpty[0]} ≈ ${nonEmpty[nonEmpty.length - 1]}`
+                  : `Verified: ${nonEmpty.join(" = ")}`,
+                expectedValue: this.formatDecimal(first.value) + (first.unit ? ` ${first.unit}` : ""),
                 replacementText: null
               };
             }
-          } else {
+          } else if (nonEmpty.some((seg) => AlgebraicEngine.detectVariable(seg) !== null)) {
             // Algebraic equation or identity (e.g. "2x + 6 = 14" or "(x + 2)(x + 3) = x^2 + 5x + 6")
             const lhs = nonEmpty[0];
             const rhs = nonEmpty[nonEmpty.length - 1];
@@ -793,23 +972,32 @@
                 };
               }
               if (eqInfo.isContradiction) {
-                if (eqInfo.leftPoly) {
-                  const simplifiedLHS = AlgebraicEngine.formatPolynomial(eqInfo.leftPoly, eqInfo.variable);
-                  if (simplifiedLHS.replace(/\s+/g, "") !== lhs.replace(/\s+/g, "").toLowerCase()) {
-                    const fixedLine = `${lhs} = ${simplifiedLHS}`;
-                    return {
-                      kind: "needsAttention",
-                      category: "algebra",
-                      message: `Expansion slip: ${lhs} simplifies to ${simplifiedLHS}, not ${rhs}`,
-                      expectedValue: simplifiedLHS,
-                      replacementText: fixedLine
-                    };
-                  }
+                // A quadratic that never reaches zero (x^2 + 1 = 0) is a fair equation, not a slip.
+                if (eqInfo.noRealRoots) {
+                  return {
+                    kind: "verified",
+                    category: "algebra",
+                    message: `Equation tracked (no real solutions)`,
+                    expectedValue: "no real solutions",
+                    replacementText: null
+                  };
+                }
+                // An expansion written out wrongly: 2(x + 3) = 2x + 9, or the same the other way round.
+                for (const [bracketed, poly, other] of [[lhs, eqInfo.leftPoly, rhs], [rhs, eqInfo.rightPoly, lhs]]) {
+                  if (!bracketed.includes("(") || !poly) continue;
+                  const expanded = AlgebraicEngine.formatPolynomial(poly, eqInfo.variable);
+                  return {
+                    kind: "needsAttention",
+                    category: "algebra",
+                    message: `Expansion slip: ${bracketed} simplifies to ${expanded}, not ${other}`,
+                    expectedValue: expanded,
+                    replacementText: bracketed === lhs ? `${lhs} = ${expanded}` : `${expanded} = ${rhs}`
+                  };
                 }
                 return {
                   kind: "needsAttention",
                   category: "algebra",
-                  message: `No real solution / inconsistent equation: ${lhs} = ${rhs}`,
+                  message: `No solution: the two sides differ by a constant (${lhs} = ${rhs})`,
                   expectedValue: null,
                   replacementText: null
                 };
@@ -826,9 +1014,24 @@
                     expectedValue: rootDesc,
                     replacementText: null
                   };
-                } else {
-                  return this.diagnoseAlgebraSlip(previousStep, eqInfo, previousStep.rawText, cleaned);
                 }
+                if (eqInfo.roots.length < previousStep.roots.length && AlgebraicEngine.rootsAmong(eqInfo.roots, previousStep.roots)) {
+                  // One of several solutions (x^2 = 16, then x = 4): right, but not the whole answer.
+                  const found = AlgebraicEngine.formatSolutions(eqInfo.roots, eqInfo.variable);
+                  const others = AlgebraicEngine.formatSolutions(
+                    previousStep.roots.filter((r) => !AlgebraicEngine.rootsAmong([r], eqInfo.roots)),
+                    eqInfo.variable
+                  );
+                  return {
+                    kind: "verified",
+                    category: "algebra",
+                    message: `Verified: ${found} is a solution (also ${others})`,
+                    expectedValue: found,
+                    replacementText: null,
+                    partialSolution: true
+                  };
+                }
+                return this.diagnoseAlgebraSlip(previousStep, eqInfo, previousStep.rawText, cleaned);
               }
 
               // Standalone equation line
@@ -851,6 +1054,16 @@
       }
 
       // 2. Standalone arithmetic, unit conversion, or percentage expression without '='
+      const standaloneUnitSum = cleaned.includes("=") ? null : this.evaluateUnitSum(cleaned);
+      if (standaloneUnitSum) {
+        return {
+          kind: "evaluated",
+          category: "arithmetic",
+          message: `${cleaned} = ${standaloneUnitSum}`,
+          expectedValue: standaloneUnitSum,
+          replacementText: `${cleaned} = ${standaloneUnitSum}`
+        };
+      }
       const standaloneVal = AlgebraicEngine.evaluateConstant(cleaned);
       if (standaloneVal !== null) {
         const formatted = this.formatNumber(standaloneVal);
@@ -903,9 +1116,16 @@
         const raw = lines[idx];
         const feedback = this.evaluateLine(raw, previousAlgebraStep);
 
-        // Update derivation context if this line is a valid equation
+        // Carry the derivation's context to the next line. A flagged step, or one that gives only
+        // some of the solutions, keeps the equation above as context so one slip doesn't cascade.
+        // A finished answer ("x = 4") or a line without "=" ends the derivation.
         const eqParts = raw.split("=");
-        if (eqParts.length === 2) {
+        if (!raw.includes("=")) {
+          previousAlgebraStep = null;
+        } else if (AlgebraicEngine.isSolvedForm(raw)) {
+          const keepsContext = feedback.kind === "needsAttention" || feedback.partialSolution;
+          if (!keepsContext) previousAlgebraStep = null;
+        } else if (eqParts.length === 2) {
           const eqInfo = AlgebraicEngine.analyzeEquation(eqParts[0].trim(), eqParts[1].trim());
           if (eqInfo && !eqInfo.isContradiction && eqInfo.roots.length > 0) {
             if (feedback.kind !== "needsAttention" || !previousAlgebraStep || previousAlgebraStep.variable !== eqInfo.variable) {
@@ -918,8 +1138,6 @@
               };
             }
           }
-        } else if (!raw.includes("=")) {
-          previousAlgebraStep = null;
         }
 
         annotations.push({
@@ -972,11 +1190,17 @@
 
       for (const clause of clauses) {
         const fb = this.evaluateLine(clause, null);
+        if (fb.category === "style") continue;
         if (fb.kind === "verified") verifiedMath.push(fb.message);
         else if (fb.kind === "needsAttention") mathSlips.push(fb.message);
       }
 
-      let baseScore = origTerms.length === 0 ? (attemptText.trim() ? 1.0 : 0.0) : matched.length / origTerms.length;
+      // A short answer ("42", "x = 5") has no key terms: the answer itself must be there.
+      const compact = (text) => text.toLowerCase().replace(/\s+/g, "");
+      let baseScore =
+        origTerms.length === 0
+          ? (compact(originalText) && compact(attemptText).includes(compact(originalText)) ? 1.0 : 0.0)
+          : matched.length / origTerms.length;
       if (mathSlips.length > 0) {
         baseScore = Math.max(0, baseScore - 0.15 * mathSlips.length);
       }
@@ -1144,6 +1368,158 @@
     return state.notebooks.find((n) => n.id === state.activeNotebookId) || state.notebooks[0];
   }
 
+  // ----------------------------------------------------------------------------
+  // Library storage: everything is kept in this browser (localStorage) so a reload
+  // doesn't lose work. The same JSON is what "Download .bellobook.json" exports.
+  // ----------------------------------------------------------------------------
+  const STORAGE_KEY = "bellobook.library.v1";
+  const PAPER_STYLES = ["ruled", "dottedLined", "grid", "dotted", "blank"];
+  const ATTACHMENT_KINDS = ["image", "audio", "video", "file"];
+  let saveTimer = null;
+
+  function isHexColor(value) {
+    return typeof value === "string" && /^#[0-9a-fA-F]{3,8}$/.test(value);
+  }
+
+  // Imported and stored data ends up in innerHTML and style attributes, so every field is
+  // checked and coerced before it is used.
+  function sanitizeAttachment(att) {
+    if (!att || typeof att !== "object") return null;
+    const dataUrl = typeof att.dataUrl === "string" && /^data:[a-z0-9.+/-]+[;,]/i.test(att.dataUrl) ? att.dataUrl : null;
+    return {
+      id: String(att.id || "att-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6)),
+      kind: ATTACHMENT_KINDS.includes(att.kind) ? att.kind : "file",
+      filename: String(att.filename || "attachment"),
+      title: String(att.title || att.filename || "Attachment"),
+      artist: String(att.artist || ""),
+      album: String(att.album || ""),
+      mimeType: String(att.mimeType || "application/octet-stream"),
+      dataUrl,
+      textPreview: typeof att.textPreview === "string" ? att.textPreview : null,
+      isDemoSynth: att.isDemoSynth === true
+    };
+  }
+
+  function sanitizeStroke(stroke) {
+    if (!stroke || !Array.isArray(stroke.points)) return null;
+    const points = stroke.points
+      .filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.y))
+      .map((p) => ({ x: p.x, y: p.y, t: Number.isFinite(p.t) ? p.t : 0 }));
+    if (points.length < 2) return null;
+    return {
+      tool: stroke.tool === "highlighter" ? "highlighter" : "pen",
+      color: isHexColor(stroke.color) ? stroke.color : "#1F2430",
+      width: Number.isFinite(stroke.width) ? Math.min(40, Math.max(0.5, stroke.width)) : 2.8,
+      alpha: Number.isFinite(stroke.alpha) ? Math.min(1, Math.max(0.05, stroke.alpha)) : 1,
+      points
+    };
+  }
+
+  function sanitizeNotebook(nb) {
+    if (!nb || typeof nb !== "object") return null;
+    return {
+      id: String(nb.id || "nb-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6)),
+      title: String(nb.title || "Untitled Log"),
+      subtitle: String(nb.subtitle || ""),
+      folderPath: String(nb.folderPath || ""),
+      coverColor: isHexColor(nb.coverColor) ? nb.coverColor : "#0A60FF",
+      paperStyle: PAPER_STYLES.includes(nb.paperStyle) ? nb.paperStyle : "ruled",
+      lines: Array.isArray(nb.lines) ? nb.lines.map((l) => String(l == null ? "" : l)) : [""],
+      strokes: Array.isArray(nb.strokes) ? nb.strokes.map(sanitizeStroke).filter(Boolean) : [],
+      attachments: Array.isArray(nb.attachments) ? nb.attachments.map(sanitizeAttachment).filter(Boolean) : []
+    };
+  }
+
+  function sanitizeCard(card) {
+    if (!card || typeof card !== "object" || !card.front) return null;
+    const number = (value, fallback) => (Number.isFinite(value) ? value : fallback);
+    return {
+      id: String(card.id || "card-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6)),
+      front: String(card.front),
+      back: String(card.back || ""),
+      ease: Math.max(1.3, number(card.ease, 2.5)),
+      interval: Math.max(0, number(card.interval, 0)),
+      reps: Math.max(0, number(card.reps, 0)),
+      due: Math.max(0, number(card.due, 0))
+    };
+  }
+
+  function libraryJSON(includeMedia, pretty) {
+    const notebooks = includeMedia
+      ? state.notebooks
+      : state.notebooks.map((nb) => ({ ...nb, attachments: (nb.attachments || []).map((a) => ({ ...a, dataUrl: null })) }));
+    const payload = {
+      app: "BelloBook",
+      version: 1,
+      notebooks,
+      customFolders: state.customFolders,
+      ankiCards: state.ankiCards,
+      activeNotebookId: state.activeNotebookId
+    };
+    return JSON.stringify(payload, null, pretty ? 2 : 0);
+  }
+
+  // Takes a parsed .bellobook.json. With `merge`, notebooks and cards with the same id are
+  // replaced and the rest are kept; without it the library is replaced. Returns how many
+  // notebooks were read, or 0 if the data isn't a BelloBook library.
+  function applyLibrary(data, merge) {
+    if (!data || typeof data !== "object" || !Array.isArray(data.notebooks)) return 0;
+    const notebooks = data.notebooks.map(sanitizeNotebook).filter(Boolean);
+    if (notebooks.length === 0) return 0;
+    const cards = Array.isArray(data.ankiCards) ? data.ankiCards.map(sanitizeCard).filter(Boolean) : null;
+    const folders = Array.isArray(data.customFolders) ? data.customFolders.map(String).filter(Boolean) : [];
+
+    if (merge) {
+      const incoming = new Set(notebooks.map((n) => n.id));
+      state.notebooks = [...notebooks, ...state.notebooks.filter((n) => !incoming.has(n.id))];
+      if (cards) {
+        const incomingCards = new Set(cards.map((c) => c.id));
+        state.ankiCards = [...cards, ...state.ankiCards.filter((c) => !incomingCards.has(c.id))];
+      }
+      state.customFolders = Array.from(new Set([...state.customFolders, ...folders]));
+    } else {
+      state.notebooks = notebooks;
+      if (cards) state.ankiCards = cards;
+      state.customFolders = folders;
+    }
+    const wanted = typeof data.activeNotebookId === "string" ? data.activeNotebookId : null;
+    if (!merge && wanted && state.notebooks.some((n) => n.id === wanted)) state.activeNotebookId = wanted;
+    if (!state.notebooks.some((n) => n.id === state.activeNotebookId)) state.activeNotebookId = state.notebooks[0].id;
+    state.activeLineIndex = 0;
+    return notebooks.length;
+  }
+
+  function loadSavedLibrary() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) applyLibrary(JSON.parse(raw), false);
+    } catch (_) {
+      // Unreadable or blocked storage: carry on with the sample notebooks.
+    }
+  }
+
+  function saveLibrary() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    try {
+      localStorage.setItem(STORAGE_KEY, libraryJSON(true, false));
+      state.mediaNotSaved = false;
+    } catch (_) {
+      // Usually the storage quota: attachments are the bulky part, so keep everything else.
+      try {
+        localStorage.setItem(STORAGE_KEY, libraryJSON(false, false));
+        state.mediaNotSaved = state.notebooks.some((nb) => (nb.attachments || []).some((a) => a.dataUrl));
+      } catch (_) {
+        // Storage unavailable (private mode, disabled): nothing more to do.
+      }
+    }
+  }
+
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveLibrary, 400);
+  }
+
   // ============================================================================
   // 5. DOM Rendering & Live Work Follower UI
   // ============================================================================
@@ -1180,6 +1556,10 @@
     bindModalEvents();
     bindVaultAndAudioEvents();
     bindAnkiAndObsidianEvents();
+    loadSavedLibrary();
+    window.addEventListener("pagehide", () => {
+      if (saveTimer) saveLibrary();
+    });
     renderAll();
   }
 
@@ -1239,6 +1619,7 @@
   function renderSidebar() {
     const activeNb = getActiveNotebook();
     els.activeNotebookCrumb.textContent = activeNb.title;
+    scheduleSave();
 
     const visibleNotebooks = state.activeFolder
       ? state.notebooks.filter(
@@ -1341,6 +1722,7 @@
     resizeAndRedrawInkCanvas();
     renderAttachmentsStrip();
     renderTextbookPreviewIfActive();
+    scheduleSave();
   }
 
   function renderAttachmentsStrip() {
@@ -1501,11 +1883,22 @@
     return null;
   }
 
+  // Writes every line back into its row. renderPaperSheet leaves the focused row alone so typing
+  // isn't interrupted, but a Fix or Insert button has to change that row too, and in Safari
+  // clicking a button doesn't move focus off the line.
+  function refreshLineInputs() {
+    const nb = getActiveNotebook();
+    els.workLinesContainer.querySelectorAll(".work-line-input").forEach((input, idx) => {
+      if (idx < nb.lines.length && input.value !== nb.lines[idx]) input.value = nb.lines[idx];
+    });
+  }
+
   function applyLineCorrection(idx, replacementText) {
     const nb = getActiveNotebook();
     nb.lines[idx] = replacementText;
     state.activeLineIndex = idx;
     renderPaperSheet();
+    refreshLineInputs();
     renderFollowerDock();
   }
 
@@ -1654,6 +2047,8 @@
       canvas.height = Math.round(rect.height * dpr);
     }
     canvas.classList.toggle("passthrough", state.activeTool === "type");
+    // The line rows sit above the canvas; while a drawing tool is active they let the pen through.
+    els.paperSheet.classList.toggle("drawing", state.activeTool !== "type");
     redrawStrokes();
   }
 
@@ -1700,7 +2095,11 @@
 
     canvas.addEventListener("pointerdown", (e) => {
       if (state.activeTool === "type") return;
-      canvas.setPointerCapture(e.pointerId);
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch (_) {
+        // Capture is a nicety (keeps the stroke going outside the sheet); drawing works without it.
+      }
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -1746,7 +2145,7 @@
       }
     });
 
-    canvas.addEventListener("pointerup", () => {
+    const finishStroke = () => {
       if (!isDrawing) return;
       isDrawing = false;
       if (currentStroke && currentStroke.points.length >= 2) {
@@ -1761,14 +2160,23 @@
       }
       currentStroke = null;
       redrawStrokes();
-    });
+      scheduleSave();
+    };
+    canvas.addEventListener("pointerup", finishStroke);
+    // Without these a cancelled touch (palm, system gesture) leaves the pen "down", and the next
+    // hover keeps adding to the stroke.
+    canvas.addEventListener("pointercancel", finishStroke);
+    canvas.addEventListener("lostpointercapture", finishStroke);
   }
 
   function eraseStrokeNear(x, y) {
     const nb = getActiveNotebook();
     const before = nb.strokes.length;
     nb.strokes = nb.strokes.filter((st) => !st.points.some((p) => Math.hypot(p.x - x, p.y - y) < 18));
-    if (nb.strokes.length !== before) redrawStrokes();
+    if (nb.strokes.length !== before) {
+      redrawStrokes();
+      scheduleSave();
+    }
   }
 
   function isScratchOutGesture(pts) {
@@ -1831,6 +2239,7 @@
     document.getElementById("clearInkBtn").addEventListener("click", () => {
       getActiveNotebook().strokes = [];
       redrawStrokes();
+      scheduleSave();
     });
 
     // Toggle Live Work Follower button
@@ -1861,6 +2270,7 @@
         nb.lines[slip.index] = slip.feedback.replacementText;
       }
       renderPaperSheet();
+      refreshLineInputs();
       renderFollowerDock();
     });
   }
@@ -2016,6 +2426,7 @@
   // ============================================================================
   let htmlAudio = null;
   let synthTimer = null;
+  let synthContext = null;
 
   function playAudioAttachment(att) {
     const idx = state.audioQueue.findIndex((a) => a.id === att.id);
@@ -2046,10 +2457,13 @@
       };
       htmlAudio.play().catch(() => {});
       state.audioPlaying = true;
-    } else if (track.isDemoSynth && typeof AudioContext !== "undefined") {
+    } else if (track.isDemoSynth && (window.AudioContext || window.webkitAudioContext)) {
       // Gentle Web Audio API chord chime so the built-in sample track works offline
       try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        // Browsers allow only a handful of audio contexts per page, so keep one and reuse it.
+        if (!synthContext) synthContext = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = synthContext;
+        if (ctx.state === "suspended") ctx.resume();
         const notes = [261.63, 329.63, 392.0, 523.25];
         notes.forEach((freq, i) => {
           const osc = ctx.createOscillator();
@@ -2117,11 +2531,11 @@
     body.innerHTML = "";
 
     if (att.kind === "image" && att.dataUrl) {
-      body.innerHTML = `<img src="${att.dataUrl}" alt="${escapeAttr(att.title)}" style="max-width:100%;border-radius:8px" />`;
+      body.innerHTML = `<img src="${escapeAttr(att.dataUrl)}" alt="${escapeAttr(att.title)}" style="max-width:100%;border-radius:8px" />`;
     } else if (att.kind === "video" && att.dataUrl) {
-      body.innerHTML = `<video src="${att.dataUrl}" controls style="max-width:100%;border-radius:8px"></video>`;
-    } else if (att.mimeType === "application/pdf" && att.dataUrl) {
-      body.innerHTML = `<iframe src="${att.dataUrl}" style="width:100%;height:250px;border:none;border-radius:8px"></iframe>`;
+      body.innerHTML = `<video src="${escapeAttr(att.dataUrl)}" controls style="max-width:100%;border-radius:8px"></video>`;
+    } else if (att.dataUrl && att.dataUrl.startsWith("data:application/pdf")) {
+      body.innerHTML = `<iframe src="${escapeAttr(att.dataUrl)}" style="width:100%;height:250px;border:none;border-radius:8px"></iframe>`;
     } else if (att.textPreview) {
       body.innerHTML = `<pre style="margin:0;font-family:monospace;font-size:12.5px;white-space:pre-wrap">${escapeHTML(att.textPreview)}</pre>`;
     } else {
@@ -2147,7 +2561,7 @@
       const icon = att.kind === "image" ? "🖼" : att.kind === "audio" ? "♫" : att.kind === "video" ? "🎬" : "📄";
       const thumb =
         att.kind === "image" && att.dataUrl
-          ? `<img src="${att.dataUrl}" alt="${escapeAttr(att.title)}" />`
+          ? `<img src="${escapeAttr(att.dataUrl)}" alt="${escapeAttr(att.title)}" />`
           : `<span>${icon}</span>`;
 
       card.innerHTML = `
@@ -2166,11 +2580,34 @@
       });
       card.querySelector('[data-vault-action="remove"]').addEventListener("click", () => {
         nb.attachments.splice(idx, 1);
+        // Take it off the Audio Deck too, so a removed track can't keep playing or come back round.
+        const queued = state.audioQueue.findIndex((a) => a.id === att.id);
+        if (queued >= 0) {
+          const wasCurrent = queued === state.audioIndex;
+          state.audioQueue.splice(queued, 1);
+          if (wasCurrent) {
+            stopRawAudio();
+            state.audioPlaying = false;
+            state.audioIndex = -1;
+          } else if (queued < state.audioIndex) {
+            state.audioIndex -= 1;
+          }
+          renderAudioDeckBar();
+        }
         renderVaultGrid();
         renderAttachmentsStrip();
+        scheduleSave();
       });
       grid.appendChild(card);
     });
+
+    if (state.mediaNotSaved) {
+      const note = document.createElement("div");
+      note.style.cssText = "grid-column:1/-1;font-size:12px;color:var(--slip);font-weight:600";
+      note.textContent =
+        "These attachments are too big for this browser's storage, so they won't survive a reload. Use Server Sync → Download .bellobook.json to keep them.";
+      grid.appendChild(note);
+    }
   }
 
   function bindVaultAndAudioEvents() {
@@ -2249,11 +2686,13 @@
             file.text().then((txt) => {
               att.textPreview = txt;
               nb.attachments.push(att);
+              saveLibrary();
               renderVaultGrid();
               renderAttachmentsStrip();
             });
           } else {
             nb.attachments.push(att);
+            saveLibrary();
             renderVaultGrid();
             renderAttachmentsStrip();
           }
@@ -2279,6 +2718,7 @@
       nb.attachments.push(demo);
       renderVaultGrid();
       renderAttachmentsStrip();
+      scheduleSave();
       playAudioAttachment(demo);
     });
 
@@ -2319,33 +2759,91 @@
     const syncStatus = document.getElementById("syncStatusMsg");
     document.getElementById("openSyncModalBtn").addEventListener("click", () => {
       syncInput.value = state.syncServerUrl || "http://localhost:8080";
-      syncStatus.textContent = state.syncServerUrl ? `Configured: ${state.syncServerUrl}` : "Local-only mode (offline-first).";
+      syncStatus.textContent = state.syncServerUrl
+        ? `Server: ${state.syncServerUrl}`
+        : "Local-only: your notes are saved in this browser.";
       els.syncModal.classList.add("open");
     });
     document.getElementById("closeSyncBtn").addEventListener("click", () => {
       els.syncModal.classList.remove("open");
     });
-    document.getElementById("saveSyncBtn").addEventListener("click", async () => {
+    const ARCHIVE_NAME = "BelloBook-Library.bellobook.json";
+    const archiveUrl = (base) => `${base.replace(/\/+$/, "")}/${ARCHIVE_NAME}`;
+
+    function rememberServer() {
       const url = syncInput.value.trim();
       state.syncServerUrl = url;
-      if (typeof localStorage !== "undefined") localStorage.setItem("bellobook.syncUrl", url);
+      try {
+        localStorage.setItem("bellobook.syncUrl", url);
+      } catch (_) {}
+      return url;
+    }
+
+    function restoreLibrary(text, source) {
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch (_) {}
+      const count = applyLibrary(data, true);
+      if (count === 0) {
+        syncStatus.textContent = `${source} isn't a BelloBook library (.bellobook.json).`;
+        return;
+      }
+      // Rows are reused between renders, so rebuild them for the restored notebook.
+      els.workLinesContainer.innerHTML = "";
+      renderAll();
+      syncStatus.textContent = `✓ Restored ${count} ${count === 1 ? "notebook" : "notebooks"} from ${source}.`;
+    }
+
+    // Upload: PUT the whole library as one file, the same way the iPad app uploads to a server.
+    document.getElementById("saveSyncBtn").addEventListener("click", async () => {
+      const url = rememberServer();
       if (!url) {
         syncStatus.textContent = "Cleared server URL (local-only mode).";
         return;
       }
-      syncStatus.textContent = `Testing connection to ${url}…`;
+      syncStatus.textContent = `Uploading to ${url}…`;
       try {
-        const res = await fetch(url, { method: "GET" });
+        const res = await fetch(archiveUrl(url), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: libraryJSON(true, false)
+        });
         syncStatus.textContent = res.ok
-          ? `✓ Connected to ${url} — ready to sync notes, media, audio & photos.`
-          : `Server responded with status ${res.status}.`;
+          ? `✓ Uploaded ${state.notebooks.length} notebooks to ${archiveUrl(url)}.`
+          : `The server answered ${res.status}, so nothing was uploaded.`;
       } catch (_) {
-        syncStatus.textContent = `Saved ${url} (start your Amphi/BelloBook server locally to sync live).`;
+        syncStatus.textContent = `Couldn't reach ${url}, so nothing was uploaded. Your notes are still saved in this browser.`;
       }
     });
+
+    document.getElementById("fetchSyncBtn").addEventListener("click", async () => {
+      const url = rememberServer();
+      if (!url) {
+        syncStatus.textContent = "Enter your server's address first.";
+        return;
+      }
+      syncStatus.textContent = `Fetching from ${url}…`;
+      try {
+        const res = await fetch(archiveUrl(url), { cache: "no-store" });
+        if (!res.ok) {
+          syncStatus.textContent = `The server answered ${res.status}: no library found at ${archiveUrl(url)}.`;
+          return;
+        }
+        restoreLibrary(await res.text(), url);
+      } catch (_) {
+        syncStatus.textContent = `Couldn't reach ${url}.`;
+      }
+    });
+
     document.getElementById("exportArchiveJsonBtn").addEventListener("click", () => {
-      const payload = JSON.stringify({ app: "BelloBook", version: 1, notebooks: state.notebooks }, null, 2);
-      downloadTextFile(payload, "BelloBook-Library.bellobook.json", "application/json");
+      downloadTextFile(libraryJSON(true, true), ARCHIVE_NAME, "application/json");
+    });
+
+    document.getElementById("importArchiveInput").addEventListener("change", async (e) => {
+      const file = (e.target.files || [])[0];
+      e.target.value = "";
+      if (file) restoreLibrary(await file.text(), file.name);
     });
   }
 
@@ -2370,10 +2868,20 @@
         return window.katex.renderToString(expr, { displayMode, throwOnError: false });
       } catch (_) {}
     }
-    // Offline fallback formatter
-    const pretty = escapeHTML(expr)
-      .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)")
-      .replace(/\\sqrt\{([^{}]+)\}/g, "√($1)")
+    // Offline fallback formatter. Groups are rewritten innermost-first, so nested ones such as
+    // \frac{-b \pm \sqrt{b^{2} - 4ac}}{2a} come out readable too.
+    let nested = escapeHTML(expr);
+    for (let pass = 0; pass < 8; pass++) {
+      const before = nested;
+      nested = nested
+        .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "($1)/($2)")
+        .replace(/\\sqrt\{([^{}]*)\}/g, "√($1)")
+        .replace(/\^\{([^{}]*)\}/g, "<sup>$1</sup>")
+        .replace(/_\{([^{}]*)\}/g, "<sub>$1</sub>");
+      if (nested === before) break;
+    }
+    const pretty = nested
+      .replace(/\^([0-9a-zA-Z])/g, "<sup>$1</sup>")
       .replace(/\\pi/g, "π")
       .replace(/\\cdot/g, "·")
       .replace(/\\times/g, "×")
@@ -2407,8 +2915,9 @@
     // ==highlight==
     html = html.replace(/==([^=]+)==/g, '<mark class="obsidian-mark">$1</mark>');
     // **bold**, *italic*, `code`
-    html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-    html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+    // Emphasis has to hug its text (*word*), so "2 * 3 * 4" stays multiplication.
+    html = html.replace(/\*\*(?!\s)([^*]+?)(?<!\s)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/\*(?!\s)([^*]+?)(?<!\s)\*/g, "<em>$1</em>");
     html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
     // #tags
     html = html.replace(/(^|\s)#([A-Za-z][A-Za-z0-9_/-]*)/g, '$1<span class="obsidian-tag">#$2</span>');
@@ -2549,6 +3058,7 @@
         const cur = nb.lines[idx] || "";
         nb.lines[idx] = cur ? `${cur} ${snippet}` : snippet;
         renderPaperSheet();
+        refreshLineInputs();
         renderFollowerDock();
         const inputs = els.workLinesContainer.querySelectorAll(".work-line-input");
         if (inputs[idx]) inputs[idx].focus();
@@ -2564,9 +3074,10 @@
     const ankiStatusMsg = document.getElementById("ankiStatusMsg");
 
     function formatAnkiCloze(text, reveal) {
+      // The text reaching here has already been HTML-escaped, so it is used as is.
       return text.replace(/\{\{c\d+::([^:}]+)(?:::([^}]+))?\}\}/g, (_, ans, hint) => {
-        if (reveal) return `<strong style="color:var(--verified)">${escapeHTML(ans)}</strong>`;
-        return `<span style="color:var(--accent);font-weight:700">[${escapeHTML(hint || "…")}]</span>`;
+        if (reveal) return `<strong style="color:var(--verified)">${ans}</strong>`;
+        return `<span style="color:var(--accent);font-weight:700">[${hint || "…"}]</span>`;
       });
     }
 
@@ -2586,6 +3097,7 @@
     }
 
     function renderAnkiModal() {
+      scheduleSave();
       const now = Date.now();
       const dueCards = state.ankiCards.filter((c) => c.due <= now);
       document.getElementById("ankiQueueCount").textContent = dueCards.length;
@@ -2660,14 +3172,27 @@
     document.getElementById("ankiFromNoteBtn").addEventListener("click", () => {
       const nb = getActiveNotebook();
       let added = 0;
-      nb.lines.filter((l) => l.trim().length > 3).forEach((line) => {
-        if (line.includes("=")) {
-          const [lhs, rhs] = line.split("=");
-          state.ankiCards.unshift({ id: "card-" + Date.now() + Math.random(), front: `${lhs.trim()} = ?`, back: rhs.trim(), ease: 2.5, interval: 0, reps: 0, due: 0 });
-          added++;
+      let skipped = 0;
+      // Lines the Work Checker flags are left out: a card must not teach a wrong answer.
+      WorkChecker.checkLines(nb.lines, -1).forEach(({ text, feedback }) => {
+        const line = text.trim();
+        const eq = line.indexOf("=");
+        if (line.length <= 3 || eq <= 0 || eq === line.length - 1) return;
+        if (feedback.kind === "needsAttention") {
+          skipped++;
+          return;
         }
+        const front = `${line.slice(0, eq).trim()} = ?`;
+        const back = line.slice(eq + 1).trim();
+        if (state.ankiCards.some((c) => c.front === front && c.back === back)) return;
+        state.ankiCards.unshift({ id: "card-" + Date.now() + Math.random(), front, back, ease: 2.5, interval: 0, reps: 0, due: 0 });
+        added++;
       });
-      ankiStatusMsg.textContent = added > 0 ? `✓ Created ${added} Anki cards from "${nb.title}".` : "Write equations (a = b) on the page to auto-generate cards.";
+      const skippedNote = skipped > 0 ? ` Skipped ${skipped} ${skipped === 1 ? "line" : "lines"} the Work Checker flagged.` : "";
+      ankiStatusMsg.textContent =
+        added > 0
+          ? `✓ Created ${added} Anki ${added === 1 ? "card" : "cards"} from "${nb.title}".${skippedNote}`
+          : `No new cards: write equations (a = b) on the page to auto-generate cards.${skippedNote}`;
       renderAnkiModal();
     });
 
@@ -2679,24 +3204,39 @@
 
     document.getElementById("pushAnkiConnectBtn").addEventListener("click", async () => {
       ankiStatusMsg.textContent = "Connecting to AnkiConnect (127.0.0.1:8765)…";
-      try {
-        await fetch("http://127.0.0.1:8765", {
+      // AnkiConnect answers {result, error}; a 200 response can still carry an error.
+      const ankiConnect = async (action, params) => {
+        const res = await fetch("http://127.0.0.1:8765", {
           method: "POST",
-          body: JSON.stringify({ action: "createDeck", version: 6, params: { deck: "BelloBook" } })
+          body: JSON.stringify({ action, version: 6, params })
         });
+        const reply = await res.json();
+        if (reply && reply.error) throw new Error(String(reply.error));
+        return reply ? reply.result : null;
+      };
+      let connected = false;
+      try {
+        await ankiConnect("createDeck", { deck: "BelloBook" });
+        connected = true;
         const notes = state.ankiCards.map((c) => ({
           deckName: "BelloBook",
           modelName: "Basic",
           fields: { Front: c.front, Back: c.back || c.front },
-          tags: ["bellobook"]
+          tags: ["bellobook"],
+          options: { allowDuplicate: false }
         }));
-        await fetch("http://127.0.0.1:8765", {
-          method: "POST",
-          body: JSON.stringify({ action: "addNotes", version: 6, params: { notes } })
-        });
-        ankiStatusMsg.textContent = `✓ Pushed ${notes.length} cards to desktop Anki!`;
-      } catch (_) {
-        ankiStatusMsg.textContent = "AnkiConnect not detected on localhost:8765 (use Export Anki .txt anytime).";
+        // addNotes fails as a whole if any note can't be added (already in Anki, say), so ask first.
+        const allowed = await ankiConnect("canAddNotes", { notes });
+        const fresh = notes.filter((_, i) => Array.isArray(allowed) && allowed[i]);
+        if (fresh.length > 0) await ankiConnect("addNotes", { notes: fresh });
+        const already = notes.length - fresh.length;
+        ankiStatusMsg.textContent =
+          `✓ Added ${fresh.length} ${fresh.length === 1 ? "card" : "cards"} to desktop Anki` +
+          (already > 0 ? ` (${already} already there).` : ".");
+      } catch (err) {
+        ankiStatusMsg.textContent = connected
+          ? `Anki refused the cards: ${err.message}`
+          : "AnkiConnect not detected on localhost:8765 (use Export Anki .txt anytime).";
       }
     });
 
@@ -2711,6 +3251,71 @@
     });
     closeObsidianBtn.addEventListener("click", () => els.obsidianModal.classList.remove("open"));
 
+    // YAML double-quoted scalar: backslashes and quotes escaped, kept on one line.
+    const yamlString = (value) => `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\s*\r?\n\s*/g, " ")}"`;
+    const noteFileName = (title) => `${title.replace(/[/\\?%*:|"<>]/g, "-").trim() || "Untitled"}.md`;
+
+    function notebookToMarkdown(nb) {
+      const lines = nb.lines.slice();
+      while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop();
+      return `---\ntitle: ${yamlString(nb.title)}\nfolder: ${yamlString(nb.folderPath || "")}\nbellobook_id: ${yamlString(nb.id)}\n---\n\n# ${nb.title}\n\n${lines.join("\n")}\n`;
+    }
+
+    // Reads a note back: the frontmatter BelloBook wrote (title, folder, id) is lifted out and the
+    // "# Title" heading it added is dropped, so exporting and importing again doesn't pile up headers.
+    function markdownToNotebook(text, fileName) {
+      let body = text.replace(/^\uFEFF/, "");
+      const meta = {};
+      const front = body.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+      if (front) {
+        body = body.slice(front[0].length);
+        front[1].split(/\r?\n/).forEach((row) => {
+          const m = row.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
+          if (!m) return;
+          let value = m[2].trim();
+          if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+            value = value.slice(1, -1).replace(/\\(["\\])/g, "$1");
+          }
+          meta[m[1]] = value;
+        });
+      }
+      const title = meta.title || fileName.replace(/\.(md|markdown)$/i, "");
+      const lines = body.split(/\r?\n/);
+      while (lines.length > 0 && !lines[0].trim()) lines.shift();
+      if (lines.length > 0 && lines[0].trim() === `# ${title}`) {
+        lines.shift();
+        while (lines.length > 0 && !lines[0].trim()) lines.shift();
+      }
+      return { id: meta.bellobook_id || null, title, folderPath: meta.folder != null ? meta.folder : "Obsidian", lines };
+    }
+
+    // Adds a note from Obsidian, or refreshes the notebook it was exported from. Returns "new",
+    // "updated" or "same".
+    function importMarkdown(text, fileName) {
+      const note = markdownToNotebook(text, fileName);
+      const existing = note.id ? state.notebooks.find((n) => n.id === note.id) : null;
+      if (existing) {
+        const current = existing.lines.slice();
+        while (current.length > 0 && !current[current.length - 1].trim()) current.pop();
+        if (existing.title === note.title && current.join("\n") === note.lines.join("\n").replace(/\n+$/, "")) return "same";
+        existing.title = note.title;
+        existing.lines = note.lines;
+        return "updated";
+      }
+      state.notebooks.unshift({
+        id: "nb-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+        title: note.title,
+        subtitle: "Imported from Obsidian",
+        folderPath: note.folderPath,
+        coverColor: "#6B4EFF",
+        paperStyle: "ruled",
+        lines: note.lines,
+        strokes: [],
+        attachments: []
+      });
+      return "new";
+    }
+
     document.getElementById("syncObsidianFolderBtn").addEventListener("click", async () => {
       if (typeof window.showDirectoryPicker !== "function") {
         obsStatus.textContent = "Folder picker requires Chrome/Edge/Arc — use Import .md Files or Download Markdown below.";
@@ -2718,51 +3323,63 @@
       }
       try {
         const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+
+        // 1. Read the vault's notes first, so edits made in Obsidian aren't overwritten below.
+        let added = 0;
+        let updated = 0;
+        for await (const entry of dirHandle.values()) {
+          if (entry.kind !== "file" || !/\.(md|markdown)$/i.test(entry.name)) continue;
+          const outcome = importMarkdown(await (await entry.getFile()).text(), entry.name);
+          if (outcome === "new") added++;
+          else if (outcome === "updated") updated++;
+        }
+
+        // 2. Write every notebook out. Two notebooks with the same title get distinct file names.
         let written = 0;
+        const usedNames = new Set();
         for (const nb of state.notebooks) {
-          const fileHandle = await dirHandle.getFileHandle(`${nb.title.replace(/[/\\?%*:|"<>]/g, "-")}.md`, { create: true });
+          let name = noteFileName(nb.title);
+          for (let n = 2; usedNames.has(name.toLowerCase()); n++) name = noteFileName(`${nb.title} ${n}`);
+          usedNames.add(name.toLowerCase());
+          const fileHandle = await dirHandle.getFileHandle(name, { create: true });
           const writable = await fileHandle.createWritable();
-          const yaml = `---\ntitle: "${nb.title}"\nfolder: "${nb.folderPath || ""}"\n---\n\n# ${nb.title}\n\n${nb.lines.join("\n")}\n`;
-          await writable.write(yaml);
+          await writable.write(notebookToMarkdown(nb));
           await writable.close();
           written++;
         }
-        obsStatus.textContent = `✓ Synced ${written} Obsidian Markdown notes to "${dirHandle.name}".`;
+        els.workLinesContainer.innerHTML = "";
+        renderAll();
+        obsStatus.textContent =
+          `✓ Synced with "${dirHandle.name}": wrote ${written} notes` +
+          (added + updated > 0 ? `, read ${added} new and ${updated} changed from the vault.` : ".");
       } catch (err) {
-        if (err && err.name !== "AbortError") obsStatus.textContent = `Obsidian sync cancelled or failed.`;
+        if (err && err.name !== "AbortError") obsStatus.textContent = `Obsidian sync failed: ${err.message || err.name}.`;
       }
     });
 
     document.getElementById("obsidianImportFilesInput").addEventListener("change", async (e) => {
       const files = Array.from(e.target.files || []);
+      e.target.value = "";
+      let added = 0;
+      let updated = 0;
       for (const file of files) {
-        const text = await file.text();
-        const title = file.name.replace(/\.(md|markdown)$/i, "");
-        state.notebooks.unshift({
-          id: "nb-" + Date.now() + Math.random(),
-          title,
-          subtitle: "Imported from Obsidian",
-          folderPath: "Obsidian",
-          coverColor: "#6B4EFF",
-          paperStyle: "ruled",
-          lines: text.split(/\r?\n/),
-          strokes: [],
-          attachments: []
-        });
+        const outcome = importMarkdown(await file.text(), file.name);
+        if (outcome === "new") added++;
+        else if (outcome === "updated") updated++;
       }
       if (files.length > 0) {
-        state.activeNotebookId = state.notebooks[0].id;
-        obsStatus.textContent = `✓ Imported ${files.length} Obsidian Markdown notes into BelloBook.`;
+        if (added > 0) state.activeNotebookId = state.notebooks[0].id;
+        state.activeLineIndex = 0;
+        els.workLinesContainer.innerHTML = "";
         renderAll();
+        obsStatus.textContent = `✓ Imported ${added} new and updated ${updated} of ${files.length} Markdown ${files.length === 1 ? "note" : "notes"}.`;
       }
-      e.target.value = "";
     });
 
     document.getElementById("obsidianDownloadBundleBtn").addEventListener("click", () => {
       const nb = getActiveNotebook();
-      const md = `---\ntitle: "${nb.title}"\nfolder: "${nb.folderPath || ""}"\n---\n\n# ${nb.title}\n\n${nb.lines.join("\n")}\n`;
-      downloadTextFile(md, `${nb.title.replace(/[^a-z0-9]+/gi, "_") || "Note"}.md`, "text/markdown");
-      obsStatus.textContent = `✓ Downloaded "${nb.title}.md" with Obsidian YAML frontmatter.`;
+      downloadTextFile(notebookToMarkdown(nb), noteFileName(nb.title), "text/markdown");
+      obsStatus.textContent = `✓ Downloaded "${noteFileName(nb.title)}" with Obsidian YAML frontmatter.`;
     });
   }
 

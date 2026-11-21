@@ -19,6 +19,10 @@ struct FlashcardsHomeView: View {
     @State private var deleting: Deck?
     @State private var ankiShareURL: ShareItem?
     @State private var ankiNotice: String?
+    /// Where Anki runs: AnkiConnect listens on a computer, not on this iPad.
+    @AppStorage("anki.connectURL") private var ankiConnectURL = ""
+    @State private var ankiAddressDraft = ""
+    @State private var ankiPushDeck: Deck?
 
     var body: some View {
         List {
@@ -70,15 +74,8 @@ struct FlashcardsHomeView: View {
                             }
                         }
                         Button("Push to Anki (AnkiConnect)") {
-                            let deckCards = study.cards(in: deck.id)
-                            Task {
-                                do {
-                                    let count = try await AnkiBridge.pushDeckToAnkiConnect(deck: deck, cards: deckCards)
-                                    ankiNotice = "Pushed \(count) cards to Anki."
-                                } catch {
-                                    ankiNotice = "AnkiConnect unavailable: \(error.localizedDescription)"
-                                }
-                            }
+                            ankiAddressDraft = ankiConnectURL
+                            ankiPushDeck = deck
                         }
                         Button("Rename") { newDeckName = deck.name; renaming = deck }
                         Button("Delete Deck", role: .destructive) { deleting = deck }
@@ -101,6 +98,32 @@ struct FlashcardsHomeView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(ankiNotice ?? "")
+        }
+        .alert("Send to Anki", isPresented: Binding(get: { ankiPushDeck != nil }, set: { if !$0 { ankiPushDeck = nil } })) {
+            TextField("http://192.168.1.20:8765", text: $ankiAddressDraft)
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            Button("Send") {
+                guard let deck = ankiPushDeck else { return }
+                let address = ankiAddressDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !address.isEmpty else { return }
+                ankiConnectURL = address
+                let deckCards = study.cards(in: deck.id)
+                Task {
+                    do {
+                        let sent = try await AnkiBridge.pushDeckToAnkiConnect(deck: deck, cards: deckCards, endpoint: address)
+                        let left = sent.total - sent.added
+                        ankiNotice = "Added \(sent.added) of \(sent.total) cards to Anki."
+                            + (left > 0 ? " Cards already in Anki, or with only handwriting on the front, are left out." : "")
+                    } catch {
+                        ankiNotice = "Couldn't reach Anki: \(error.localizedDescription)"
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter the address of the computer running Anki with the AnkiConnect add-on, on the same network as this iPad.")
         }
         .toolbar {
             Button {
@@ -498,8 +521,11 @@ struct FlashcardReviewView: View {
             let attemptRec = attemptDrawing.strokes.isEmpty
                 ? ""
                 : ((try? await HandwritingRecognizer.recognize(attemptDrawing, language: language)) ?? "")
+            // With nothing readable on the original (a bare PDF page, a diagram) there is
+            // nothing to grade against, so no score is shown.
+            let hasOriginal = !origFull.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             withAnimation(Style.spring) {
-                recallSummary = WorkChecker.compareRecall(originalText: origFull, attemptText: attemptRec)
+                recallSummary = hasOriginal ? WorkChecker.compareRecall(originalText: origFull, attemptText: attemptRec) : nil
             }
         }
     }

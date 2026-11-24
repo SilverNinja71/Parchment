@@ -1331,6 +1331,7 @@
     audioIndex: -1,
     audioPlaying: false,
     textbookMode: false,
+    splitMode: false,
     ankiFlipped: false,
     ankiIndex: 0,
     ankiCards: [
@@ -1550,6 +1551,9 @@
     els.textbookPreview = document.getElementById("textbookPreview");
     els.ankiModal = document.getElementById("ankiModal");
     els.obsidianModal = document.getElementById("obsidianModal");
+    els.cmdPaletteModal = document.getElementById("cmdPaletteModal");
+    els.paperBodyGrid = document.getElementById("paperBodyGrid");
+    els.saveStatusPill = document.getElementById("saveStatusPill");
 
     bindTopAndToolbarEvents();
     bindInkCanvasEvents();
@@ -1560,7 +1564,9 @@
     window.addEventListener("pagehide", () => {
       if (saveTimer) saveLibrary();
     });
+    bindCommandPaletteAndSplit();
     renderAll();
+    loadWorkspaceFromIndexedDB();
   }
 
   function renderAll() {
@@ -1569,6 +1575,7 @@
     renderPaperSheet();
     renderFollowerDock();
     renderAudioDeckBar();
+    scheduleAutoSave();
   }
 
   function getAllFolderPaths() {
@@ -2929,15 +2936,19 @@
   function renderTextbookPreviewIfActive() {
     if (!els.textbookPreview || !els.workLinesContainer) return;
     const toggleBtn = document.getElementById("toggleTextbookBtn");
-    if (toggleBtn) toggleBtn.classList.toggle("btn-pill-active", state.textbookMode);
+    const splitBtn = document.getElementById("toggleSplitBtn");
+    if (toggleBtn) toggleBtn.classList.toggle("btn-pill-active", state.textbookMode && !state.splitMode);
+    if (splitBtn) splitBtn.classList.toggle("btn-pill-active", state.splitMode);
+    if (els.paperSheet) els.paperSheet.classList.toggle("split-active", state.splitMode);
+    if (els.paperBodyGrid) els.paperBodyGrid.className = state.splitMode ? "split-workspace" : "";
 
-    if (!state.textbookMode) {
+    if (!state.textbookMode && !state.splitMode) {
       els.textbookPreview.style.display = "none";
       els.workLinesContainer.style.display = "flex";
       return;
     }
 
-    els.workLinesContainer.style.display = "none";
+    els.workLinesContainer.style.display = state.splitMode ? "flex" : "none";
     els.textbookPreview.style.display = "flex";
 
     const nb = getActiveNotebook();
@@ -3380,6 +3391,210 @@
       const nb = getActiveNotebook();
       downloadTextFile(notebookToMarkdown(nb), noteFileName(nb.title), "text/markdown");
       obsStatus.textContent = `✓ Downloaded "${noteFileName(nb.title)}" with Obsidian YAML frontmatter.`;
+    });
+  }
+
+  // ============================================================================
+  // 10. Auto-Save (IndexedDB + localStorage), Split View & Command Palette (⌘K)
+  // ============================================================================
+  let idbSaveTimer = null;
+  let idbReady = false;
+
+  function scheduleAutoSave() {
+    if (!idbReady) return;
+    if (els.saveStatusPill) els.saveStatusPill.textContent = "Saving…";
+    clearTimeout(idbSaveTimer);
+    idbSaveTimer = setTimeout(() => {
+      const snapshot = {
+        notebooks: state.notebooks,
+        customFolders: state.customFolders,
+        activeNotebookId: state.activeNotebookId,
+        activeFolder: state.activeFolder,
+        ankiCards: state.ankiCards
+      };
+      persistToIndexedDB(snapshot);
+    }, 180);
+  }
+
+  function persistToIndexedDB(snapshot) {
+    try {
+      if (typeof indexedDB !== "undefined") {
+        const req = indexedDB.open("BelloBookDB", 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("workspace")) db.createObjectStore("workspace");
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("workspace", "readwrite");
+          tx.objectStore("workspace").put(snapshot, "latest");
+          tx.oncomplete = () => {
+            if (els.saveStatusPill) els.saveStatusPill.textContent = "✓ Saved";
+          };
+        };
+        return;
+      }
+    } catch (_) {}
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("bellobook.workspace", JSON.stringify(snapshot));
+        if (els.saveStatusPill) els.saveStatusPill.textContent = "✓ Saved";
+      }
+    } catch (_) {}
+  }
+
+  function loadWorkspaceFromIndexedDB() {
+    const applySnapshot = (snap) => {
+      if (snap && Array.isArray(snap.notebooks) && snap.notebooks.length > 0) {
+        state.notebooks = snap.notebooks;
+        if (Array.isArray(snap.customFolders)) state.customFolders = snap.customFolders;
+        if (snap.activeNotebookId) state.activeNotebookId = snap.activeNotebookId;
+        if (typeof snap.activeFolder === "string") state.activeFolder = snap.activeFolder;
+        if (Array.isArray(snap.ankiCards)) state.ankiCards = snap.ankiCards;
+        renderAll();
+      }
+      idbReady = true;
+    };
+
+    try {
+      if (typeof indexedDB !== "undefined") {
+        const req = indexedDB.open("BelloBookDB", 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("workspace")) db.createObjectStore("workspace");
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("workspace", "readonly");
+          const getReq = tx.objectStore("workspace").get("latest");
+          getReq.onsuccess = () => applySnapshot(getReq.result);
+          getReq.onerror = () => { idbReady = true; };
+        };
+        req.onerror = () => { idbReady = true; };
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      const raw = typeof localStorage !== "undefined" && localStorage.getItem("bellobook.workspace");
+      if (raw) applySnapshot(JSON.parse(raw));
+      else idbReady = true;
+    } catch (_) {
+      idbReady = true;
+    }
+  }
+
+  function bindCommandPaletteAndSplit() {
+    // Split View button
+    const splitBtn = document.getElementById("toggleSplitBtn");
+    if (splitBtn) {
+      splitBtn.addEventListener("click", () => {
+        state.splitMode = !state.splitMode;
+        if (state.splitMode) state.textbookMode = false;
+        renderPaperSheet();
+      });
+    }
+
+    // Also save on every line input
+    if (els.workLinesContainer) {
+      els.workLinesContainer.addEventListener("input", scheduleAutoSave);
+    }
+
+    // Command Palette (⌘K / Ctrl+K)
+    const cmdModal = els.cmdPaletteModal;
+    const cmdInput = document.getElementById("cmdSearchInput");
+    const cmdList = document.getElementById("cmdResultsList");
+    const openBtn = document.getElementById("openCmdPaletteBtn");
+    const closeBtn = document.getElementById("closeCmdPaletteBtn");
+    let selectedCmdIdx = 0;
+
+    function buildCommandItems(query) {
+      const q = query.trim().toLowerCase();
+      const items = [];
+
+      state.notebooks.forEach((nb) => {
+        items.push({
+          label: `Open Log: ${nb.title}`,
+          meta: nb.folderPath || nb.subtitle,
+          run: () => {
+            state.activeNotebookId = nb.id;
+            state.activeLineIndex = 0;
+            renderAll();
+          }
+        });
+      });
+
+      items.push(
+        { label: "Toggle Split View (Editor | LaTeX Preview)", meta: "View", run: () => { state.splitMode = !state.splitMode; renderPaperSheet(); } },
+        { label: "Toggle Textbook View", meta: "View", run: () => { state.textbookMode = !state.textbookMode; state.splitMode = false; renderPaperSheet(); } },
+        { label: "Open Anki Flashcards (SM-2 & Cloze)", meta: "Study", run: () => document.getElementById("openAnkiBtn").click() },
+        { label: "Open Obsidian Vault Sync", meta: "Sync", run: () => document.getElementById("openObsidianBtn").click() },
+        { label: "Open Media, Audio & File Vault", meta: "Vault", run: () => document.getElementById("openVaultBtn").click() },
+        { label: "Fix All Work Checker Slips", meta: "Action", run: () => document.getElementById("fixAllSlipsBtn").click() },
+        { label: "Export Notebook as Markdown (.md)", meta: "Export", run: () => document.getElementById("exportMarkdownBtn").click() },
+        { label: "Open One-Server Sync", meta: "Sync", run: () => document.getElementById("openSyncModalBtn").click() }
+      );
+
+      if (!q) return items.slice(0, 10);
+      return items.filter((it) => it.label.toLowerCase().includes(q) || it.meta.toLowerCase().includes(q));
+    }
+
+    function renderCommands() {
+      const matches = buildCommandItems(cmdInput.value);
+      if (selectedCmdIdx >= matches.length) selectedCmdIdx = 0;
+      cmdList.innerHTML = "";
+      matches.forEach((item, idx) => {
+        const btn = document.createElement("button");
+        btn.className = "cmd-result-item" + (idx === selectedCmdIdx ? " selected" : "");
+        btn.innerHTML = `<span>${escapeHTML(item.label)}</span><span style="font-size:11px;color:var(--muted)">${escapeHTML(item.meta)}</span>`;
+        btn.addEventListener("click", () => {
+          cmdModal.classList.remove("open");
+          item.run();
+        });
+        cmdList.appendChild(btn);
+      });
+      return matches;
+    }
+
+    function openPalette() {
+      cmdInput.value = "";
+      selectedCmdIdx = 0;
+      renderCommands();
+      cmdModal.classList.add("open");
+      setTimeout(() => cmdInput.focus(), 20);
+    }
+
+    if (openBtn) openBtn.addEventListener("click", openPalette);
+    if (closeBtn) closeBtn.addEventListener("click", () => cmdModal.classList.remove("open"));
+    cmdInput.addEventListener("input", () => {
+      selectedCmdIdx = 0;
+      renderCommands();
+    });
+    cmdInput.addEventListener("keydown", (e) => {
+      const matches = buildCommandItems(cmdInput.value);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        selectedCmdIdx = (selectedCmdIdx + 1) % Math.max(1, matches.length);
+        renderCommands();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        selectedCmdIdx = (selectedCmdIdx - 1 + Math.max(1, matches.length)) % Math.max(1, matches.length);
+        renderCommands();
+      } else if (e.key === "Enter" && matches[selectedCmdIdx]) {
+        e.preventDefault();
+        cmdModal.classList.remove("open");
+        matches[selectedCmdIdx].run();
+      } else if (e.key === "Escape") {
+        cmdModal.classList.remove("open");
+      }
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (cmdModal.classList.contains("open")) cmdModal.classList.remove("open");
+        else openPalette();
+      }
     });
   }
 

@@ -1257,3 +1257,93 @@ mark.obsidian-mark {
     break-inside: avoid;
   }
 }
+
+/* ============================================================================
+   Split View (Editor | Live LaTeX & Textbook Preview) + Command Palette (⌘K)
+   ============================================================================ */
+.paper-sheet.split-active {
+  width: min(1240px, 98%);
+}
+
+.split-workspace {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  align-items: start;
+}
+
+.split-workspace .textbook-preview {
+  display: flex !important;
+  border-left: 1px solid var(--hairline);
+  padding: 18px 28px 32px 24px;
+  min-height: 760px;
+}
+
+.save-status-pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--verified);
+  background: var(--verified-bg);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+/* Command Palette (⌘K) */
+.cmd-palette-sheet {
+  width: min(580px, 94vw);
+  max-height: 76vh;
+  background: #fff;
+  border-radius: var(--sheet-radius);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cmd-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cmd-search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.cmd-results-list {
+  padding: 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cmd-result-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: var(--control-radius);
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.cmd-result-item:hover,
+.cmd-result-item.selected {
+  background: rgba(10, 96, 255, 0.10);
+  color: var(--accent);
+}

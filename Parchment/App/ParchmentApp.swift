@@ -34,6 +34,7 @@ struct RootView: View {
     @State private var path: [UUID] = []
     @State private var columns = NavigationSplitViewVisibility.all
     @State private var showSettings = false
+    @State private var showCommandPalette = false
     @State private var openError: String?
     @AppStorage("hasSeededTutorial") private var seededTutorial = false
     @AppStorage("hasCompletedTutorial") private var completedTutorial = false
@@ -56,6 +57,26 @@ struct RootView: View {
         }
         .onChange(of: selection) { _, _ in path = [] }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showCommandPalette) {
+            CommandPaletteView(
+                onOpenNotebook: { id in
+                    selection = .allNotes
+                    path = [id]
+                },
+                onSelectSidebar: { item in
+                    selection = item
+                    path = []
+                },
+                onOpenSettings: {
+                    showSettings = true
+                }
+            )
+        }
+        .background {
+            Button("") { showCommandPalette = true }
+                .keyboardShortcut("k", modifiers: .command)
+                .hidden()
+        }
         .onAppear {
             // Catch up on reading handwriting for search, a moment after launch.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { HandwritingIndex.shared.indexEverything() }

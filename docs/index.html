@@ -34,11 +34,18 @@
           <span>Log:</span>
           <strong id="activeNotebookCrumb">Algebra &amp; Step Checker</strong>
         </div>
+        <span class="save-status-pill" id="saveStatusPill" title="Auto-saved to browser IndexedDB">✓ Saved</span>
       </div>
 
       <div class="top-actions">
+        <button class="btn" id="openCmdPaletteBtn" title="Command Palette (⌘K / Ctrl+K)">
+          ⌘K
+        </button>
         <button class="btn" id="openNewNotebookBtn" title="Create a new notebook with 3D cover, folder &amp; paper preview">
           + New Log
+        </button>
+        <button class="btn" id="toggleSplitBtn" title="Side-by-side Split View: Write LaTeX/Markdown on left, live preview on right">
+          Split View
         </button>
         <button class="btn" id="toggleTextbookBtn" title="Switch between Live Work Editor &amp; Obsidian Textbook / LaTeX Preview">
           Textbook View
@@ -179,11 +186,11 @@
           <!-- Inline Media Attachments Strip (Amphi Notes/Photos/Audio/Cloud) -->
           <div class="page-attachments-strip" id="pageAttachmentsStrip" style="display:none"></div>
 
-          <!-- Interactive Line Rows with Left Follower Bracket & Right Margin Badges -->
-          <div class="work-lines-container" id="workLinesContainer"></div>
-
-          <!-- Obsidian Textbook, Markdown & LaTeX Rendered Preview -->
-          <div class="textbook-preview" id="textbookPreview" style="display:none"></div>
+          <!-- Interactive Line Rows + Obsidian Textbook/LaTeX Preview (supports Split View) -->
+          <div id="paperBodyGrid">
+            <div class="work-lines-container" id="workLinesContainer"></div>
+            <div class="textbook-preview" id="textbookPreview" style="display:none"></div>
+          </div>
 
           <!-- Freehand Ink Overlay Canvas -->
           <canvas class="ink-canvas passthrough" id="inkCanvas"></canvas>
@@ -436,6 +443,18 @@
           <div id="obsidianSyncStatus" style="font-size:12px;font-weight:600;color:var(--accent)"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Command Palette (⌘K / Ctrl+K) Modal -->
+  <div class="modal-backdrop" id="cmdPaletteModal" role="dialog" aria-modal="true" aria-label="Command Palette">
+    <div class="cmd-palette-sheet">
+      <div class="cmd-search-row">
+        <span style="color:var(--accent);font-weight:700">⌘K</span>
+        <input type="text" class="cmd-search-input" id="cmdSearchInput" placeholder="Jump to notebook, folder, Anki, Obsidian, Split View, Fix Slips…" />
+        <button class="btn" id="closeCmdPaletteBtn" style="padding:3px 9px;font-size:11px">Esc</button>
+      </div>
+      <div class="cmd-results-list" id="cmdResultsList"></div>
     </div>
   </div>
 
